@@ -851,6 +851,10 @@ int  hp_need_track_function(uint8 hash_code, char *curr_func) {
 //是否不捕获当前函数
 static inline int  hp_ignore_entry(uint8 hash_code, char *curr_func) {
     if (hp_globals.track_function_names != NULL) {
+        if (!strcmp(curr_func, ROOT_SYMBOL)) {
+            return 0;
+        }
+
         //指定的函数才捕获
         if (hp_need_track_function(hash_code, curr_func)) {
             return 0;

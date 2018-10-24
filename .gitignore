@@ -54,3 +54,4 @@ dkms.conf
 *.swp
 *.swn
 *.swo
+*.log

@@ -16,37 +16,34 @@ function foo() {
 }
 
 // start profiling
-//$options = ['xhprof_test' => 11111, 'bar'];
 $options = [
     //'ignored_functions' => ['bar'],
     'track_functions' => ['test', 'bar'],
 ];
 //$options = ['ignored_functions' => 'bar'];
 xhprof_enable(0, $options);
-//xhprof_enable(100, "xxxxxxxxxxxxx121111111111x");
-//die;
 
+//xhprof_test();
 
-echo "ssssssssssss\n";
+$start_ts = microtime(true);
 
-xhprof_test();
+for ($i = 1; $i <= 1000000; $i++) {
+//for ($i = 1; $i <= 1000; $i++) {
+    foo();
+    if ($i % 100 == 0) {
+        $memory = memory_get_usage(true);
+        $memory_mb = intval($memory / 1000000);
+        echo "$i\tmemory_usage\t$memory\t$memory_mb\n" ;
+    }
+}
 
-echo "ttttttttttt\n";
-// run program
-foo();
-
-test();
-
-// stop profiler
 $xhprof_data = xhprof_disable();
 
-echo "rrrrrrrrrrrr\n";
+//var_dump($xhprof_data);
 
-xhprof_test();
+$time_cost = microtime(true) - $start_ts;
 
-// display raw xhprof data for the profiler run
-var_dump($xhprof_data);
-echo "zzzzzzzzzzzzz\n";
+echo "total_ts\t$time_cost\n"; 
 
 
 function  test() {
