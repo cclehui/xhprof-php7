@@ -1,0 +1,22 @@
+001+ /usr/local/php/bin/php: symbol lookup error: /home/cclehui/php/php-7.1.15/ext/xhprof/extension/modules/xhprof.so: undefined symbol: MAKE_STD_ZVAL
+001- Direct Recursion
+002- foo==>foo@1                             : ct=       1; wt=*;
+003- foo@1==>foo@2                           : ct=       1; wt=*;
+004- foo@2==>foo@3                           : ct=       1; wt=*;
+005- foo@3==>foo@4                           : ct=       1; wt=*;
+006- main()                                  : ct=       1; wt=*;
+007- main()==>foo                            : ct=       1; wt=*;
+008- main()==>xhprof_disable                 : ct=       1; wt=*;
+009- 
+010- Indirect Recursion
+011- bar==>foo@1                             : ct=       1; wt=*;
+012- bar@1==>foo@2                           : ct=       1; wt=*;
+013- bar@2==>foo@3                           : ct=       1; wt=*;
+014- bar@3==>foo@4                           : ct=       1; wt=*;
+015- foo==>bar                               : ct=       1; wt=*;
+016- foo@1==>bar@1                           : ct=       1; wt=*;
+017- foo@2==>bar@2                           : ct=       1; wt=*;
+018- foo@3==>bar@3                           : ct=       1; wt=*;
+019- main()                                  : ct=       1; wt=*;
+020- main()==>foo                            : ct=       1; wt=*;
+021- main()==>xhprof_disable                 : ct=       1; wt=*;

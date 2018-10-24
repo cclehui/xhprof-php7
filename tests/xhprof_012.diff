@@ -1,0 +1,2 @@
+001+ /usr/local/php/bin/php: symbol lookup error: /home/cclehui/php/php-7.1.15/ext/xhprof/extension/modules/xhprof.so: undefined symbol: MAKE_STD_ZVAL
+001- DID NOT LEAK A LOT OF MEMORY

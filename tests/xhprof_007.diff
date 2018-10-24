@@ -1,0 +1,101 @@
+001+ Deprecated: Methods with the same name as their class will not be constructors in a future version of PHP; test_call_user_func has a deprecated constructor in /home/cclehui/php/php-7.1.15/ext/xhprof/extension/tests/xhprof_007.php on line 52
+002- hello: this is a test
+003+ /usr/local/php/bin/php: symbol lookup error: /home/cclehui/php/php-7.1.15/ext/xhprof/extension/modules/xhprof.so: undefined symbol: MAKE_STD_ZVAL
+003- hello: Arraytest
+004- Part 1 output:
+005- foo==>bar                               : ct=       2; wt=*;
+006- foo==>strlen                            : ct=       1; wt=*;
+007- foo_array==>bar                         : ct=       2; wt=*;
+008- foo_array==>strlen                      : ct=       1; wt=*;
+009- main()                                  : ct=       1; wt=*;
+010- main()==>foo                            : ct=       1; wt=*;
+011- main()==>foo_array                      : ct=       1; wt=*;
+012- main()==>xhprof_disable                 : ct=       1; wt=*;
+013- 
+014- Part 2a: Ignore call_user_func
+015- hello: user_func test
+016- Part 2a output:
+017- foo==>bar                               : ct=       2; wt=*;
+018- foo==>strlen                            : ct=       1; wt=*;
+019- main()                                  : ct=       1; wt=*;
+020- main()==>test_call_user_func::test_call_user_func: ct=       1; wt=*;
+021- main()==>xhprof_disable                 : ct=       1; wt=*;
+022- test_call_user_func::test_call_user_func==>foo: ct=       1; wt=*;
+023- 
+024- Part 2b: Standard profile without parameters
+025- hello: user_func test
+026- Part 2b output:
+027- call_user_func==>foo                    : ct=       1; wt=*;
+028- foo==>bar                               : ct=       2; wt=*;
+029- foo==>strlen                            : ct=       1; wt=*;
+030- main()                                  : ct=       1; wt=*;
+031- main()==>test_call_user_func::test_call_user_func: ct=       1; wt=*;
+032- main()==>xhprof_disable                 : ct=       1; wt=*;
+033- test_call_user_func::test_call_user_func==>call_user_func: ct=       1; wt=*;
+034- 
+035- Part 2c: Standard profile with empty array of ignored functions
+036- hello: user_func test
+037- Part 2c output:
+038- call_user_func==>foo                    : ct=       1; wt=*;
+039- foo==>bar                               : ct=       2; wt=*;
+040- foo==>strlen                            : ct=       1; wt=*;
+041- main()                                  : ct=       1; wt=*;
+042- main()==>test_call_user_func::test_call_user_func: ct=       1; wt=*;
+043- main()==>xhprof_disable                 : ct=       1; wt=*;
+044- test_call_user_func::test_call_user_func==>call_user_func: ct=       1; wt=*;
+045- 
+046- Part 3: Ignore call_user_func_array
+047- hello: calling foo_array
+048- Part 3 output:
+049- foo_array==>bar                         : cpu=*; ct=       2; wt=*;
+050- foo_array==>strlen                      : cpu=*; ct=       1; wt=*;
+051- main()                                  : cpu=*; ct=       1; wt=*;
+052- main()==>test_call_user_func_array      : cpu=*; ct=       1; wt=*;
+053- main()==>xhprof_disable                 : cpu=*; ct=       1; wt=*;
+054- test_call_user_func_array==>foo_array   : cpu=*; ct=       1; wt=*;
+055- 
+056- Part 4: Ignore my_call_user_func_safe
+057- hello: Array
+058- Part 4 output:
+059- foo==>bar                               : ct=       2; wt=*;
+060- foo==>strlen                            : ct=       1; wt=*;
+061- main()                                  : ct=       1; wt=*;
+062- main()==>test_my_call_user_func_safe    : ct=       1; wt=*;
+063- main()==>xhprof_disable                 : ct=       1; wt=*;
+064- test_my_call_user_func_safe==>foo       : ct=       1; wt=*;
+065- test_my_call_user_func_safe==>is_callable: ct=       1; wt=*;
+066- 
+067- Part 5a: Ignore my_call_user_func_array_safe and strlen
+068- hello: my_user_func_array_safetest
+069- Part 5a output:
+070- foo_array==>bar                         : ct=       2; mu=*; pmu=*; wt=*;
+071- main()                                  : ct=       1; mu=*; pmu=*; wt=*;
+072- main()==>test_my_call_user_func_array_safe: ct=       1; mu=*; pmu=*; wt=*;
+073- main()==>xhprof_disable                 : ct=       1; mu=*; pmu=*; wt=*;
+074- test_my_call_user_func_array_safe==>foo_array: ct=       1; mu=*; pmu=*; wt=*;
+075- test_my_call_user_func_array_safe==>is_callable: ct=       1; mu=*; pmu=*; wt=*;
+076- 
+077- Part 5b: Profile call_user_func_array and my_call_user_func_array_safe
+078- hello: my_user_func_array_safetest
+079- Part 5b output:
+080- call_user_func_array==>foo_array        : ct=       1; mu=*; pmu=*; wt=*;
+081- foo_array==>bar                         : ct=       2; mu=*; pmu=*; wt=*;
+082- foo_array==>strlen                      : ct=       1; mu=*; pmu=*; wt=*;
+083- main()                                  : ct=       1; mu=*; pmu=*; wt=*;
+084- main()==>test_my_call_user_func_array_safe: ct=       1; mu=*; pmu=*; wt=*;
+085- main()==>xhprof_disable                 : ct=       1; mu=*; pmu=*; wt=*;
+086- my_call_user_func_array_safe==>call_user_func_array: ct=       1; mu=*; pmu=*; wt=*;
+087- my_call_user_func_array_safe==>is_callable: ct=       1; mu=*; pmu=*; wt=*;
+088- test_my_call_user_func_array_safe==>my_call_user_func_array_safe: ct=       1; mu=*; pmu=*; wt=*;
+089- 
+090- Part 5c: Only ignore call_user_func_array
+091- hello: my_user_func_array_safetest
+092- Part 5c output:
+093- call_user_func_array==>foo_array        : ct=       1; mu=*; pmu=*; wt=*;
+094- foo_array==>bar                         : ct=       2; mu=*; pmu=*; wt=*;
+095- foo_array==>strlen                      : ct=       1; mu=*; pmu=*; wt=*;
+096- main()                                  : ct=       1; mu=*; pmu=*; wt=*;
+097- main()==>test_my_call_user_func_array_safe: ct=       1; mu=*; pmu=*; wt=*;
+098- main()==>xhprof_disable                 : ct=       1; mu=*; pmu=*; wt=*;
+099- test_my_call_user_func_array_safe==>call_user_func_array: ct=       1; mu=*; pmu=*; wt=*;
+100- test_my_call_user_func_array_safe==>is_callable: ct=       1; mu=*; pmu=*; wt=*;

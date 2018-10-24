@@ -1,0 +1,14 @@
+
+---- EXPECTED OUTPUT
+Verifying sleep_10000_micro...
+OK: sleep_10000_micro
+-------------
+Verifying sleep_20000_micro...
+OK: sleep_20000_micro
+-------------
+Verifying sleep_50000_micro...
+OK: sleep_50000_micro
+-------------
+---- ACTUAL OUTPUT
+/usr/local/php/bin/php: symbol lookup error: /home/cclehui/php/php-7.1.15/ext/xhprof/extension/modules/xhprof.so: undefined symbol: MAKE_STD_ZVAL
+---- FAILED

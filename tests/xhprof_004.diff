@@ -1,0 +1,20 @@
+001+ /usr/local/php/bin/php: symbol lookup error: /home/cclehui/php/php-7.1.15/ext/xhprof/extension/modules/xhprof.so: undefined symbol: MAKE_STD_ZVAL
+001- abc,def,ghi
+002- I am in foo()...
+003- 11
+004- I am in bar()...
+005- Test for 'include_once' & 'require_once' operation
+006- main()                                  : ct=       1; wt=*;
+007- main()==>dirname                        : ct=       6; wt=*;
+008- main()==>load::tests/xhprof_004_inc.php : ct=       1; wt=*;
+009- main()==>load::tests/xhprof_004_require.php: ct=       1; wt=*;
+010- main()==>run_init::tests/xhprof_004_inc.php: ct=       1; wt=*;
+011- main()==>run_init::tests/xhprof_004_require.php: ct=       1; wt=*;
+012- main()==>xhprof_disable                 : ct=       1; wt=*;
+013- run_init::tests/xhprof_004_inc.php==>explode: ct=       1; wt=*;
+014- run_init::tests/xhprof_004_inc.php==>foo: ct=       1; wt=*;
+015- run_init::tests/xhprof_004_inc.php==>implode: ct=       1; wt=*;
+016- run_init::tests/xhprof_004_require.php==>bar: ct=       1; wt=*;
+017- run_init::tests/xhprof_004_require.php==>explode: ct=       1; wt=*;
+018- run_init::tests/xhprof_004_require.php==>implode: ct=       1; wt=*;
+019- run_init::tests/xhprof_004_require.php==>strlen: ct=       1; wt=*;

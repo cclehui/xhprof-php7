@@ -1,0 +1,33 @@
+001+ /usr/local/php/bin/php: symbol lookup error: /home/cclehui/php/php-7.1.15/ext/xhprof/extension/modules/xhprof.so: undefined symbol: MAKE_STD_ZVAL
+001- Part 1: Default Flags
+002- foo==>bar                               : ct=       2; wt=*;
+003- foo==>strlen                            : ct=       1; wt=*;
+004- main()                                  : ct=       1; wt=*;
+005- main()==>foo                            : ct=       1; wt=*;
+006- main()==>xhprof_disable                 : ct=       1; wt=*;
+007- 
+008- Part 2: CPU
+009- foo==>bar                               : cpu=*; ct=       2; wt=*;
+010- foo==>strlen                            : cpu=*; ct=       1; wt=*;
+011- main()                                  : cpu=*; ct=       1; wt=*;
+012- main()==>foo                            : cpu=*; ct=       1; wt=*;
+013- main()==>xhprof_disable                 : cpu=*; ct=       1; wt=*;
+014- 
+015- Part 3: No Builtins
+016- foo==>bar                               : ct=       2; wt=*;
+017- main()                                  : ct=       1; wt=*;
+018- main()==>foo                            : ct=       1; wt=*;
+019- 
+020- Part 4: Memory
+021- foo==>bar                               : ct=       2; mu=*; pmu=*; wt=*;
+022- foo==>strlen                            : ct=       1; mu=*; pmu=*; wt=*;
+023- main()                                  : ct=       1; mu=*; pmu=*; wt=*;
+024- main()==>foo                            : ct=       1; mu=*; pmu=*; wt=*;
+025- main()==>xhprof_disable                 : ct=       1; mu=*; pmu=*; wt=*;
+026- 
+027- Part 5: Memory & CPU
+028- foo==>bar                               : cpu=*; ct=       2; mu=*; pmu=*; wt=*;
+029- foo==>strlen                            : cpu=*; ct=       1; mu=*; pmu=*; wt=*;
+030- main()                                  : cpu=*; ct=       1; mu=*; pmu=*; wt=*;
+031- main()==>foo                            : cpu=*; ct=       1; mu=*; pmu=*; wt=*;
+032- main()==>xhprof_disable                 : cpu=*; ct=       1; mu=*; pmu=*; wt=*;

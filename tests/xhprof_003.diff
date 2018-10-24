@@ -1,0 +1,12 @@
+001+ /usr/local/php/bin/php: symbol lookup error: /home/cclehui/php/php-7.1.15/ext/xhprof/extension/modules/xhprof.so: undefined symbol: MAKE_STD_ZVAL
+001- i am a class static
+002- In constructor...
+003- Destroying class Hello World
+004- Profiler data for 'Class' tests:
+005- C::outer_static==>C::inner_static       : ct=       1; wt=*;
+006- main()                                  : ct=       1; wt=*;
+007- main()==>C::__construct                 : ct=       1; wt=*;
+008- main()==>C::__destruct                  : ct=       1; wt=*;
+009- main()==>C::get_attr                    : ct=       1; wt=*;
+010- main()==>C::outer_static                : ct=       1; wt=*;
+011- main()==>xhprof_disable                 : ct=       1; wt=*;

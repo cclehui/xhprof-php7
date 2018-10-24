@@ -1,0 +1,13 @@
+
+---- EXPECTED OUTPUT
+Part 1: Sampling Profile
+Test Case   :  Percent of Total Time
+Individual  :
+Folded      :
+Part 1: output
+In general, sampling output depends upon execution speed.
+Currently checking that this runs to completion.
+---- ACTUAL OUTPUT
+Part 1: Sampling Profile
+/usr/local/php/bin/php: symbol lookup error: /home/cclehui/php/php-7.1.15/ext/xhprof/extension/modules/xhprof.so: undefined symbol: MAKE_STD_ZVAL
+---- FAILED

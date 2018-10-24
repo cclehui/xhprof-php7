@@ -1,0 +1,6 @@
+
+---- EXPECTED OUTPUT
+DID NOT LEAK A LOT OF MEMORY
+---- ACTUAL OUTPUT
+/usr/local/php/bin/php: symbol lookup error: /home/cclehui/php/php-7.1.15/ext/xhprof/extension/modules/xhprof.so: undefined symbol: MAKE_STD_ZVAL
+---- FAILED
