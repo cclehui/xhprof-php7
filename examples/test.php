@@ -28,7 +28,7 @@ xhprof_enable(0, $options);
 $start_ts = microtime(true);
 
 for ($i = 1; $i <= 1000000; $i++) {
-//for ($i = 1; $i <= 1000; $i++) {
+//for ($i = 1; $i <= 100000; $i++) {
     foo();
     if ($i % 100 == 0) {
         $memory = memory_get_usage(true);
@@ -40,6 +40,7 @@ for ($i = 1; $i <= 1000000; $i++) {
 $xhprof_data = xhprof_disable();
 
 //var_dump($xhprof_data);
+print_r($xhprof_data);
 
 $time_cost = microtime(true) - $start_ts;
 
