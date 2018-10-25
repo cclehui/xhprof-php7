@@ -40,7 +40,7 @@ for ($i = 1; $i <= 1000000; $i++) {
 $xhprof_data = xhprof_disable();
 
 //var_dump($xhprof_data);
-print_r($xhprof_data);
+//print_r($xhprof_data);
 
 $time_cost = microtime(true) - $start_ts;
 

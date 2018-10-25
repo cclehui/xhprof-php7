@@ -433,6 +433,8 @@ PHP_MINIT_FUNCTION(xhprof) {
     CPU_ZERO(&(hp_globals.prev_mask));
 #endif
 
+    hp_globals.enabled = 0;
+
     /* Initialize cpu_frequencies and cur_cpu_id. */
     hp_globals.cpu_frequencies = NULL;
     hp_globals.cur_cpu_id = 0;
@@ -1513,6 +1515,11 @@ void hp_mode_hier_endfn_cb(hp_entry_t **entries  TSRMLS_DC) {
  * @author hzhao, kannan
  */
 ZEND_DLEXPORT void hp_execute_ex (zend_execute_data *execute_data TSRMLS_DC) {
+    if (!hp_globals.enabled) {
+        _zend_execute_ex(execute_data TSRMLS_CC);
+        return;
+    }
+
     zend_op_array *ops = execute_data->opline;
     char          *func = NULL;
     int hp_profile_flag = 1;
@@ -1525,6 +1532,7 @@ ZEND_DLEXPORT void hp_execute_ex (zend_execute_data *execute_data TSRMLS_DC) {
     }
 
     BEGIN_PROFILING(&hp_globals.entries, func, hp_profile_flag);
+
     _zend_execute_ex(execute_data TSRMLS_CC);
 
     if (hp_globals.entries) {
