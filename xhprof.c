@@ -865,6 +865,9 @@ void hp_clean_profiler_state(TSRMLS_D) {
  */
 zend_string * hp_get_entry_name(hp_entry_t  *entry) {
 
+    //cclehui_test
+    return entry->name_hprof;
+
     /* Add '@recurse_level' if required */
     /* NOTE:  Dont use snprintf's return val as it is compiler dependent */
     zend_string *temp_name;
@@ -940,6 +943,7 @@ static inline int  hp_ignore_entry(uint8 hash_code, zend_string *curr_func) {
         //指定的函数才捕获
         if (hp_need_track_function(hash_code, curr_func)) {
             return 0;
+            //return 1;
         } else {
             return 1;
         }
@@ -965,7 +969,8 @@ static inline int  hp_ignore_entry(uint8 hash_code, zend_string *curr_func) {
  * @author kannan, veeve
  */
 size_t hp_get_function_stack(hp_entry_t *entry, int level,  zend_string **result_buf) {
-    size_t         len = 0;
+
+    size_t len = 0;
 
     /* End recursion if we dont need deeper levels or we dont have any deeper
      * levels */
@@ -1045,7 +1050,32 @@ static zend_string *hp_get_function_name(zend_op_array *ops TSRMLS_DC) {
         return NULL;
     }
 
+    //cclehui_test
     return curr_func->common.function_name;
+
+
+    //没有类
+    if (!curr_func->common.scope || !curr_func->common.scope->name) {
+        zend_string_addref(curr_func->common.function_name);
+        return curr_func->common.function_name;
+    } 
+
+    zend_string *result;
+
+    //result = zend_string_dup(curr_func->common.scope->name, 0);
+    result = zend_string_alloc(ZSTR_LEN(curr_func->common.scope->name) + ZSTR_LEN(curr_func->common.function_name) + 1 , 0);
+
+    memcpy(result->val, ZSTR_VAL(curr_func->common.scope->name), ZSTR_LEN(curr_func->common.scope->name));
+    *(result->val + ZSTR_LEN(curr_func->common.scope->name)) = ':';
+
+    memcpy(result->val + ZSTR_LEN(curr_func->common.scope->name) + 1 , ZSTR_VAL(curr_func->common.function_name), ZSTR_LEN(curr_func->common.function_name));
+
+    *(result->val + ZSTR_LEN(curr_func->common.scope->name) + 1 + ZSTR_LEN(curr_func->common.function_name))  = '\0';
+
+    //cclehui_test
+    //php_printf("11111111, %s, %d, %d\n", ZSTR_VAL(result), strlen(ZSTR_VAL(result)), sizeof(ZSTR_VAL(result)));
+
+    return result;
 
     /*
     ret = estrdup(ZSTR_VAL(curr_func->common.function_name));
@@ -1113,21 +1143,16 @@ static void hp_fast_free_hprof_entry(hp_entry_t *p) {
  * @return void
  * @author kannan
  */
-void hp_inc_count(HashTable *counts, char *name, long count TSRMLS_DC) {
+void hp_inc_count(HashTable *counts, char *name, size_t len, long count TSRMLS_DC) {
     zval *data;
 
     if (!counts) return;
 
-    size_t len = strlen(name);
-
-    //if (zend_hash_find(ht, name, strlen(name) + 1, &data) == SUCCESS) {
     data = zend_hash_str_find(counts, name, len); 
     if (data != NULL) {
-        //ZVAL_LONG(*(zval**)data, Z_LVAL_PP((zval**)data) + count);
         ZVAL_LONG(data, Z_LVAL_P(data) + count);
 
     } else {
-        //add_assoc_long(counts, name, count);
         zval *temp = (zval *)emalloc(sizeof(zval));
         ZVAL_LONG(temp, count);
 
@@ -1509,9 +1534,9 @@ HashTable * hp_mode_shared_endfn_cb(hp_entry_t *top, zend_string *symbol  TSRMLS
 
 
     /* Bump stats in the counts hashtable */
-    hp_inc_count(counts, "ct", 1  TSRMLS_CC);
+    hp_inc_count(counts, "ct", 2, 1  TSRMLS_CC);
 
-    hp_inc_count(counts, "wt", get_us_from_tsc(tsc_end - top->tsc_start,
+    hp_inc_count(counts, "wt", 2, get_us_from_tsc(tsc_end - top->tsc_start,
                 hp_globals.cpu_frequencies[hp_globals.cur_cpu_id]) TSRMLS_CC);
 
 
@@ -1532,13 +1557,15 @@ void hp_mode_hier_endfn_cb(hp_entry_t **entries  TSRMLS_DC) {
     long int         mu_end;
     long int         pmu_end;
 
-    /* Get the stat array */
-    hp_get_function_stack(top, 2, &symbol);
+    //hp_get_function_stack(top, 2, &symbol);
+    //hp_get_function_stack(top, 1, &symbol);//cclehui_test
+    //
+    symbol = top->name_hprof;
 
     Bucket *symbol_bucket = zend_hash_find_bucket_cc(hp_globals.tracked_function_names, symbol);
     if (symbol_bucket) {
-        zend_string_free(symbol);
-        symbol = symbol_bucket->key;
+        //zend_string_free(symbol);
+        //symbol = symbol_bucket->key;
     } else {
         zend_hash_add_empty_element(hp_globals.tracked_function_names, symbol);
     }
@@ -1552,7 +1579,7 @@ void hp_mode_hier_endfn_cb(hp_entry_t **entries  TSRMLS_DC) {
         getrusage(RUSAGE_SELF, &ru_end);
 
         /* Bump CPU stats in the counts hashtable */
-        hp_inc_count(counts, "cpu", (get_us_interval(&(top->ru_start_hprof.ru_utime),
+        hp_inc_count(counts, "cpu", 3, (get_us_interval(&(top->ru_start_hprof.ru_utime),
                         &(ru_end.ru_utime)) +
                     get_us_interval(&(top->ru_start_hprof.ru_stime),
                         &(ru_end.ru_stime)))
@@ -1565,8 +1592,8 @@ void hp_mode_hier_endfn_cb(hp_entry_t **entries  TSRMLS_DC) {
         pmu_end = zend_memory_peak_usage(0 TSRMLS_CC);
 
         /* Bump Memory stats in the counts hashtable */
-        hp_inc_count(counts, "mu",  mu_end - top->mu_start_hprof    TSRMLS_CC);
-        hp_inc_count(counts, "pmu", pmu_end - top->pmu_start_hprof  TSRMLS_CC);
+        hp_inc_count(counts, "mu", 2,  mu_end - top->mu_start_hprof    TSRMLS_CC);
+        hp_inc_count(counts, "pmu", 3, pmu_end - top->pmu_start_hprof  TSRMLS_CC);
     }
 }
 
@@ -1607,6 +1634,8 @@ ZEND_DLEXPORT void hp_execute_ex (zend_execute_data *execute_data TSRMLS_DC) {
     if (hp_globals.entries) {
         END_PROFILING(&hp_globals.entries, hp_profile_flag);
     }
+
+    zend_string_release(func);
 }
 
 #undef EX
@@ -1650,6 +1679,7 @@ ZEND_DLEXPORT void hp_execute_internal(zend_execute_data *execute_data, zval *re
         if (hp_globals.entries) {
             END_PROFILING(&hp_globals.entries, hp_profile_flag);
         }
+        zend_string_release(func);
     }
 
 }
