@@ -130,6 +130,8 @@ typedef unsigned char uint8;
 #define HP_STATS_COUNT_MU    4 
 #define HP_STATS_COUNT_PMU   5 
 
+#define HP_STATS_KEY_NUM   6 //统计的数据种类 比 HP_STATS_COUNT_XX定义的最大值多1
+
 /**
  * *****************************
  * GLOBAL DATATYPES AND TYPEDEFS
@@ -184,7 +186,11 @@ typedef struct hp_global_t {
     int              ever_enabled;
 
     /* Holds all the xhprof statistics */
-    HashTable       *stats_count;
+    //HashTable       *stats_count;
+    zend_long             **stats_count;
+
+    //要统计的函数个数
+    uint32_t             stats_count_func_num;
 
     //已捕获的函数名字 zend_string cache
     HashTable       *tracked_function_names;;
@@ -286,8 +292,8 @@ static void hp_option_functions_filter_clear();
 static void hp_option_functions_filter_init();
 
 static inline zval  *hp_zval_at_key(char  *key, HashTable  *values);
-static inline char **hp_strings_in_zval(zval  *values);
-static inline void   hp_array_del(char **name_array);
+static inline void emalloc_hp_stats_count(uint32_t func_num);
+static inline void efree_hp_stats_count();
 
 /* {{{ arginfo */
 ZEND_BEGIN_ARG_INFO(arginfo_xhprof_test, 0)
@@ -406,7 +412,15 @@ PHP_FUNCTION(xhprof_enable) {
 PHP_FUNCTION(xhprof_disable) {
     if (hp_globals.enabled) {
         hp_stop(TSRMLS_C);
-        RETURN_ARR(hp_globals.stats_count);
+
+        int i, j = 1;
+        for (i = 1; i < hp_globals.stats_count_func_num; i++) {
+            for (j = 1; j < HP_STATS_KEY_NUM; j++) {
+                php_printf("%d, %d => %d \n", i, j, hp_globals.stats_count[i][j]);
+            }
+        }
+
+        //RETURN_ARR(hp_globals.stats_count);
     }
     /* else null is returned */
 }
@@ -443,6 +457,7 @@ PHP_MINIT_FUNCTION(xhprof) {
     hp_globals.cur_cpu_id = 0;
 
     hp_globals.stats_count = NULL;
+    hp_globals.stats_count_func_num = 0;
 
     hp_globals.tracked_function_names = NULL;
 
@@ -593,7 +608,7 @@ static void hp_get_options_from_arg(HashTable *args) {
 
     /* Init stats_count */
     if (hp_globals.stats_count) {
-        zend_hash_destroy(hp_globals.stats_count);
+        efree_hp_stats_count();//释放旧内存
     }
 
     hp_globals.ignored_function_names = NULL;
@@ -635,12 +650,9 @@ static void hp_get_options_from_arg(HashTable *args) {
             size_t tf_count = 1;
             zval *temp_value;
 
-            /*
-            //初始化存储统计数据的hashtable
-            ALLOC_HASHTABLE(hp_globals.stats_count);
-            zend_hash_init(hp_globals.stats_count, 50, NULL, NULL, 0);
-            zend_hash_real_init(hp_globals.stats_count, 1); //转为packed array
-            */
+            //emalloc hp_stats_count init
+            hp_globals.stats_count_func_num = zend_hash_num_elements(Z_ARR_P(z_track_functions)) + 1;
+            emalloc_hp_stats_count(hp_globals.stats_count_func_num);
 
             for (zend_hash_internal_pointer_reset(Z_ARR_P(z_track_functions));
                     zend_hash_has_more_elements(Z_ARR_P(z_track_functions)) == SUCCESS;
@@ -649,32 +661,14 @@ static void hp_get_options_from_arg(HashTable *args) {
                 zval *data = zend_hash_get_current_data(Z_ARR_P(z_track_functions));
 
                 if (data && Z_TYPE_P(data) == IS_STRING) {
-                    //zend_hash_add_empty_element(hp_globals.track_function_names, Z_STR_P(data));
                     temp_value = (zval *)emalloc(sizeof(zval));
                     ZVAL_LONG(temp_value, tf_count);
 
                     zend_hash_add(hp_globals.track_function_names, Z_STR_P(data), temp_value);
 
-                    /*
-                    //统计结果hashtable 初始化
-                    zval *counts = (zval *)emalloc(sizeof(zval));
-                    Z_TYPE_INFO_P(counts) = IS_ARRAY_EX;
-
-                    HashTable *temp = (HashTable *)emalloc(sizeof(HashTable));
-                    zend_hash_init(temp, 10, NULL, NULL, 0);
-                    zend_hash_real_init(temp, 1);// 转为packed array
-
-                    Z_ARR_P(counts) = temp;
-
-                    zend_hash_index_add(hp_globals.stats_count, tf_count, counts);
-                    //end 统计结果hashtable
-                    */
-
                     tf_count++;
                 }
             }
-
-            //zend_hash_str_add_empty_element(hp_globals.track_function_names, ROOT_SYMBOL, strlen(ROOT_SYMBOL));
 
             temp_value = (zval *)emalloc(sizeof(zval));
             ZVAL_LONG(temp_value, tf_count);
@@ -772,16 +766,6 @@ void hp_init_profiler_state(int level TSRMLS_DC) {
     }
     hp_globals.profiler_level  = (int) level;
 
-    /* Init stats_count */
-    if (hp_globals.stats_count) {
-        zend_hash_destroy(hp_globals.stats_count);
-    }
-
-    //初始化存储统计数据的hashtable
-    ALLOC_HASHTABLE(hp_globals.stats_count);
-    zend_hash_init(hp_globals.stats_count, 50, NULL, NULL, 0);
-    zend_hash_real_init(hp_globals.stats_count, 1); //转为packed array
-
     if (hp_globals.tracked_function_names) {
         zend_hash_destroy(hp_globals.tracked_function_names);
     }
@@ -817,7 +801,7 @@ void hp_clean_profiler_state(TSRMLS_D) {
 
     /* Clear globals */
     if (hp_globals.stats_count) {
-        zend_hash_clean(hp_globals.stats_count);
+        efree_hp_stats_count();
     }
 
     if (hp_globals.tracked_function_names) {
@@ -1184,92 +1168,6 @@ static void hp_fast_free_hprof_entry(hp_entry_t *p) {
 }
 
 /**
- * Increment the count of the given stat with the given count
- * If the stat was not set before, inits the stat to the given count
- *
- */
-void hp_inc_count(HashTable *counts, zend_long index, long count TSRMLS_DC) {
-
-    zval *data;
-
-    if (!counts) return;
-
-    data = zend_hash_index_find(counts, index); 
-    if (data != NULL) {
-        ZVAL_LONG(data, Z_LVAL_P(data) + count);
-
-    } else {
-        zval *temp = (zval *)emalloc(sizeof(zval));
-        ZVAL_LONG(temp, count);
-
-        zend_hash_index_add(counts, index, temp);
-    }
-}
-
-/**
- * Looksup the hash table for the given symbol
- * Initializes a new array() if symbol is not present
- *
- * @author kannan, veeve
- */
-HashTable * hp_stats_count_lookup(zend_long func_hash_index  TSRMLS_DC) {
-    zval *counts;
-
-    if (!hp_globals.stats_count ) {
-        return NULL;
-    }
-
-    /* Lookup our hash table */
-    //counts = zend_hash_find(hp_globals.stats_count, symbol); 
-    counts = zend_hash_index_find(hp_globals.stats_count, func_hash_index); 
-    //counts = zend_hash_index_find_cc(hp_globals.stats_count, func_hash_index); 
-    if (counts == NULL) {
-        /* Add symbol to hash table */
-        counts = (zval *)emalloc(sizeof(zval));
-        Z_TYPE_INFO_P(counts) = IS_ARRAY_EX;
-
-        HashTable *temp = (HashTable *)emalloc(sizeof(HashTable));
-        zend_hash_init(temp, 10, NULL, NULL, 0);
-        //zend_hash_real_init(temp, 1);// 转为packed array
-
-        Z_ARR_P(counts) = temp;
-
-        php_printf("1111111111, %d, %d\n", HT_IS_PACKED(hp_globals.stats_count), HT_IS_PACKED(temp));
-
-        zend_hash_index_add(hp_globals.stats_count, func_hash_index, counts);
-
-        php_printf("22222222, %d, %d\n", HT_IS_PACKED(hp_globals.stats_count), HT_IS_PACKED(temp));
-
-    }
-
-    return Z_ARR_P(counts);
-}
-
-/**
- * Truncates the given timeval to the nearest slot begin, where
- * the slot size is determined by intr
- *
- * @param  tv       Input timeval to be truncated in place
- * @param  intr     Time interval in microsecs - slot width
- * @return void
- * @author veeve
- */
-void hp_trunc_time(struct timeval *tv,
-        uint64          intr) {
-    uint64 time_in_micro;
-
-    /* Convert to microsecs and trunc that first */
-    time_in_micro = (tv->tv_sec * 1000000) + tv->tv_usec;
-    time_in_micro /= intr;
-    time_in_micro *= intr;
-
-    /* Update tv */
-    tv->tv_sec  = (time_in_micro / 1000000);
-    tv->tv_usec = (time_in_micro % 1000000);
-}
-
-
-/**
  * ***********************
  * High precision timer related functions.
  * ***********************
@@ -1530,32 +1428,6 @@ void hp_mode_hier_beginfn_cb(hp_entry_t **entries, hp_entry_t  *current  TSRMLS_
  * **********************************
  */
 
-/**
- * XHPROF shared end function callback
- *
- * @author kannan
- */
-HashTable * hp_mode_shared_endfn_cb(hp_entry_t *top, zend_string *symbol  TSRMLS_DC) {
-    HashTable    *counts;
-    uint64   tsc_end;
-
-    /* Get end tsc counter */
-    tsc_end = cycle_timer();
-
-    /* find or create the stat array */
-    if (!(counts = hp_stats_count_lookup(top->func_hash_index TSRMLS_CC))) {
-        return NULL;
-    }
-
-    /* Bump stats in the counts hashtable */
-    hp_inc_count(counts, HP_STATS_COUNT_CT, 1  TSRMLS_CC);
-
-    hp_inc_count(counts, HP_STATS_COUNT_WT, get_us_from_tsc(tsc_end - top->tsc_start,
-                hp_globals.cpu_frequencies[hp_globals.cur_cpu_id]) TSRMLS_CC);
-
-
-    return counts;
-}
 
 /**
  * XHPROF_MODE_HIERARCHICAL's end function callback
@@ -1564,14 +1436,25 @@ HashTable * hp_mode_shared_endfn_cb(hp_entry_t *top, zend_string *symbol  TSRMLS
  */
 void hp_mode_hier_endfn_cb(hp_entry_t **entries  TSRMLS_DC) {
     hp_entry_t   *top = (*entries);
-    HashTable    *counts;
     struct rusage    ru_end;
     long int         mu_end;
     long int         pmu_end;
 
-    if (!(counts = hp_mode_shared_endfn_cb(top, top->name_hprof  TSRMLS_CC))) {
+    if (!top->func_hash_index) {
         return;
     }
+
+    uint64   tsc_end;
+
+    /* Get end tsc counter */
+    tsc_end = cycle_timer();
+
+    //ct 调用次数计数
+    hp_globals.stats_count[top->func_hash_index][HP_STATS_COUNT_CT]++;
+
+    //wt 函数耗时计数
+    hp_globals.stats_count[top->func_hash_index][HP_STATS_COUNT_WT] += get_us_from_tsc(tsc_end - top->tsc_start,
+                                            hp_globals.cpu_frequencies[hp_globals.cur_cpu_id]); 
 
 
     if (hp_globals.xhprof_flags & XHPROF_FLAGS_CPU) {
@@ -1579,11 +1462,10 @@ void hp_mode_hier_endfn_cb(hp_entry_t **entries  TSRMLS_DC) {
         getrusage(RUSAGE_SELF, &ru_end);
 
         /* Bump CPU stats in the counts hashtable */
-        hp_inc_count(counts, HP_STATS_COUNT_CPU, (get_us_interval(&(top->ru_start_hprof.ru_utime),
+        hp_globals.stats_count[top->func_hash_index][HP_STATS_COUNT_CPU] += (get_us_interval(&(top->ru_start_hprof.ru_utime),
                         &(ru_end.ru_utime)) +
                     get_us_interval(&(top->ru_start_hprof.ru_stime),
-                        &(ru_end.ru_stime)))
-                TSRMLS_CC);
+                        &(ru_end.ru_stime)));
     }
 
     if (hp_globals.xhprof_flags & XHPROF_FLAGS_MEMORY) {
@@ -1592,8 +1474,8 @@ void hp_mode_hier_endfn_cb(hp_entry_t **entries  TSRMLS_DC) {
         pmu_end = zend_memory_peak_usage(0 TSRMLS_CC);
 
         /* Bump Memory stats in the counts hashtable */
-        hp_inc_count(counts, HP_STATS_COUNT_MU,  mu_end - top->mu_start_hprof    TSRMLS_CC);
-        hp_inc_count(counts, HP_STATS_COUNT_PMU, pmu_end - top->pmu_start_hprof  TSRMLS_CC);
+        hp_globals.stats_count[top->func_hash_index][HP_STATS_COUNT_MU] += mu_end - top->mu_start_hprof;
+        hp_globals.stats_count[top->func_hash_index][HP_STATS_COUNT_PMU] += pmu_end - top->pmu_start_hprof;
     }
 }
 
@@ -1798,72 +1680,40 @@ static zval *hp_zval_at_key(char  *key, HashTable  *values) {
     return result;
 }
 
-/** Convert the PHP array of strings to an emalloced array of strings. Note,
- *  this method duplicates the string data in the PHP array.
- *
- *  @author mpal
- **/
-static char **hp_strings_in_zval(zval  *values) {
-    char   **result;
-    size_t   count;
-    size_t   ix = 0;
-
-    if (!values) {
-        return NULL;
+//malloc 并初始化内存
+static void emalloc_hp_stats_count(uint32_t func_num) {
+    if (func_num < 1) {
+        return;
     }
 
-    if (Z_TYPE_P(values) == IS_ARRAY) {
+    int i = 0;
+    int j = 0;
+    hp_globals.stats_count = (zend_long **)emalloc(sizeof(zend_long *) * func_num);
+    
+    for (i = 0; i < func_num; i++) {
+        hp_globals.stats_count[i] = (zend_long *)emalloc(sizeof(zend_long) * HP_STATS_KEY_NUM);
 
-        count = zend_hash_num_elements(Z_ARR_P(values));
-
-        if((result =
-                    (char**)emalloc(sizeof(char*) * (count + 1))) == NULL) {
-            return result;
+        for (j = 0; j < HP_STATS_KEY_NUM; j++) {
+            hp_globals.stats_count[i][j] = 0;
         }
-
-        for (zend_hash_internal_pointer_reset(Z_ARR_P(values));
-                zend_hash_has_more_elements(Z_ARR_P(values)) == SUCCESS;
-                zend_hash_move_forward(Z_ARR_P(values))) {
-
-            zval *data;
-
-            /* Get the names stored in a standard array */
-            if(zend_hash_get_current_key_type(Z_ARR_P(values)) == HASH_KEY_IS_LONG) {
-                data = zend_hash_get_current_data(Z_ARR_P(values));
-
-                if (!(Z_ISNULL_P(data)) &&
-                        Z_TYPE_P(data) == IS_STRING &&
-                        strcmp(Z_STRVAL_P(data), ROOT_SYMBOL)) { /* do not ignore "main" */
-                    result[ix] = estrdup(Z_STRVAL_P(data));
-                    ix++;
-                }
-            }
-        }
-    } else if(Z_TYPE_P(values) == IS_STRING) {
-        if((result = (char**)emalloc(sizeof(char*) * 2)) == NULL) {
-            return result;
-        }
-        result[0] = estrdup(Z_STRVAL_P(values));
-        ix = 1;
-    } else {
-        result = NULL;
     }
 
-    /* NULL terminate the array */
-    if (result != NULL) {
-        result[ix] = NULL;
-    }
-
-    return result;
+    return;
 }
 
-/* Free this memory at the end of profiling */
-static inline void hp_array_del(char **name_array) {
-    if (name_array != NULL) {
-        int i = 0;
-        for(; name_array[i] != NULL && i < XHPROF_MAX_IGNORED_FUNCTIONS; i++) {
-            efree(name_array[i]);
-        }
-        efree(name_array);
+//回收内存
+static void efree_hp_stats_count() {
+    if (!hp_globals.stats_count
+            || !hp_globals.stats_count_func_num) {
+        return;
     }
+
+    int i = 0;
+    
+    for (i = 0; i < hp_globals.stats_count_func_num; i++) {
+        efree(hp_globals.stats_count[i]);
+    }
+
+    efree(hp_globals.stats_count);
 }
+
