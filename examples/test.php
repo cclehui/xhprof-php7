@@ -33,9 +33,10 @@ $start_ts = microtime(true);
 //for ($i = 1; $i <= 20; $i++) {
 //for ($i = 1; $i <= 10000000; $i++) {
 for ($i = 1; $i <= 20000000; $i++) {
-    test();
+//for ($i = 1; $i <= 2; $i++) {
     //TempUtil::test();
-    //bar(0);
+    //test();
+    bar(0);
     if ($i % 100 == 0) {
         //foo();
         //bar(0);

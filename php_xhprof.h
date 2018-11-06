@@ -175,6 +175,24 @@ static zend_always_inline Bucket *zend_hash_find_bucket_cc(const HashTable *ht, 
     return NULL;
 }
 
+ZEND_API zval* ZEND_FASTCALL zend_hash_index_find_cc(const HashTable *ht, zend_ulong h) {
+    Bucket *p;
+
+    if (ht->u.flags & HASH_FLAG_PACKED) {
+        if (h < ht->nNumUsed) {
+            p = ht->arData + h;
+            if (Z_TYPE(p->val) != IS_UNDEF) {
+                //php_printf("222222\n");
+                return &p->val;
+            }
+        }
+        return NULL;
+    }
+
+    p = zend_hash_index_find_bucket(ht, h);
+    return p ? &p->val : NULL;
+}
+
 
 PHP_MINIT_FUNCTION(xhprof);
 PHP_MSHUTDOWN_FUNCTION(xhprof);

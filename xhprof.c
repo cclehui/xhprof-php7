@@ -123,6 +123,13 @@ typedef unsigned int uint32;
 typedef unsigned char uint8;
 #endif
 
+//hp_globals.stats_count 单个元素的 hash table index
+#define HP_STATS_COUNT_CT    1 
+#define HP_STATS_COUNT_WT    2 
+#define HP_STATS_COUNT_CPU   3 
+#define HP_STATS_COUNT_MU    4 
+#define HP_STATS_COUNT_PMU   5 
+
 /**
  * *****************************
  * GLOBAL DATATYPES AND TYPEDEFS
@@ -144,7 +151,7 @@ typedef struct hp_entry_t {
     long int                pmu_start_hprof;              /* peak memory usage */
     struct rusage           ru_start_hprof;             /* user/sys time start */
     struct hp_entry_t      *prev_hprof;    /* ptr to prev entry being profiled */
-    uint8                   hash_code;     /* hash_code for the function name  */
+    zend_long               func_hash_index;     /* func_hash_index for the function name  */
 } hp_entry_t;
 
 /* Various types for XHPROF callbacks       */
@@ -177,7 +184,6 @@ typedef struct hp_global_t {
     int              ever_enabled;
 
     /* Holds all the xhprof statistics */
-    //zval            *stats_count;
     HashTable       *stats_count;
 
     //已捕获的函数名字 zend_string cache
@@ -215,9 +221,6 @@ typedef struct hp_global_t {
 
     /* XHProf flags */
     uint32 xhprof_flags;
-
-    /* counter table indexed by hash value of function names. */
-    uint8  func_hash_counters[256];
 
     /* Table of ignored function names and their filter */
     HashTable  *ignored_function_names;
@@ -446,10 +449,6 @@ PHP_MINIT_FUNCTION(xhprof) {
     /* no free hp_entry_t structures to start with */
     hp_globals.entry_free_list = NULL;
 
-    for (i = 0; i < 256; i++) {
-        hp_globals.func_hash_counters[i] = 0;
-    }
-
     hp_option_functions_filter_clear();
 
     //function proxy
@@ -592,6 +591,11 @@ static void hp_get_options_from_arg(HashTable *args) {
         zend_hash_destroy(hp_globals.track_function_names);
     }
 
+    /* Init stats_count */
+    if (hp_globals.stats_count) {
+        zend_hash_destroy(hp_globals.stats_count);
+    }
+
     hp_globals.ignored_function_names = NULL;
     hp_globals.track_function_names = NULL;
 
@@ -628,6 +632,16 @@ static void hp_get_options_from_arg(HashTable *args) {
             ALLOC_HASHTABLE(hp_globals.track_function_names);
             zend_hash_init(hp_globals.track_function_names, 20, NULL, NULL, 0);
 
+            size_t tf_count = 1;
+            zval *temp_value;
+
+            /*
+            //初始化存储统计数据的hashtable
+            ALLOC_HASHTABLE(hp_globals.stats_count);
+            zend_hash_init(hp_globals.stats_count, 50, NULL, NULL, 0);
+            zend_hash_real_init(hp_globals.stats_count, 1); //转为packed array
+            */
+
             for (zend_hash_internal_pointer_reset(Z_ARR_P(z_track_functions));
                     zend_hash_has_more_elements(Z_ARR_P(z_track_functions)) == SUCCESS;
                     zend_hash_move_forward(Z_ARR_P(z_track_functions))) {
@@ -635,13 +649,38 @@ static void hp_get_options_from_arg(HashTable *args) {
                 zval *data = zend_hash_get_current_data(Z_ARR_P(z_track_functions));
 
                 if (data && Z_TYPE_P(data) == IS_STRING) {
-                    zend_hash_add_empty_element(hp_globals.track_function_names, Z_STR_P(data));
+                    //zend_hash_add_empty_element(hp_globals.track_function_names, Z_STR_P(data));
+                    temp_value = (zval *)emalloc(sizeof(zval));
+                    ZVAL_LONG(temp_value, tf_count);
+
+                    zend_hash_add(hp_globals.track_function_names, Z_STR_P(data), temp_value);
+
+                    /*
+                    //统计结果hashtable 初始化
+                    zval *counts = (zval *)emalloc(sizeof(zval));
+                    Z_TYPE_INFO_P(counts) = IS_ARRAY_EX;
+
+                    HashTable *temp = (HashTable *)emalloc(sizeof(HashTable));
+                    zend_hash_init(temp, 10, NULL, NULL, 0);
+                    zend_hash_real_init(temp, 1);// 转为packed array
+
+                    Z_ARR_P(counts) = temp;
+
+                    zend_hash_index_add(hp_globals.stats_count, tf_count, counts);
+                    //end 统计结果hashtable
+                    */
+
+                    tf_count++;
                 }
             }
 
-            zend_hash_str_add_empty_element(hp_globals.track_function_names, ROOT_SYMBOL, strlen(ROOT_SYMBOL));
+            //zend_hash_str_add_empty_element(hp_globals.track_function_names, ROOT_SYMBOL, strlen(ROOT_SYMBOL));
 
-            //display_hash_table(hp_globals.track_function_names);
+            temp_value = (zval *)emalloc(sizeof(zval));
+            ZVAL_LONG(temp_value, tf_count);
+            zend_hash_str_add(hp_globals.track_function_names, ROOT_SYMBOL, strlen(ROOT_SYMBOL), temp_value);
+
+            display_hash_table(hp_globals.track_function_names);
         }
     }
 }
@@ -737,9 +776,11 @@ void hp_init_profiler_state(int level TSRMLS_DC) {
     if (hp_globals.stats_count) {
         zend_hash_destroy(hp_globals.stats_count);
     }
-    //hp_globals.stats_count = (HashTable *)emalloc(sizeof(HashTable));
+
+    //初始化存储统计数据的hashtable
     ALLOC_HASHTABLE(hp_globals.stats_count);
     zend_hash_init(hp_globals.stats_count, 50, NULL, NULL, 0);
+    zend_hash_real_init(hp_globals.stats_count, 1); //转为packed array
 
     if (hp_globals.tracked_function_names) {
         zend_hash_destroy(hp_globals.tracked_function_names);
@@ -807,19 +848,15 @@ void hp_clean_profiler_state(TSRMLS_D) {
  *        CALLING FUNCTION OR BY CALLING TSRMLS_FETCH()
  *        TSRMLS_FETCH() IS RELATIVELY EXPENSIVE.
  */
-#define BEGIN_PROFILING(entries, symbol, profile_curr)                  \
+#define BEGIN_PROFILING(entries, symbol, func_hash_index)                  \
     do {                                                                  \
         /* Use a hash code to filter most of the string comparisons. */     \
-        /*uint8 hash_code  = hp_inline_hash(symbol);*/                          \
-        uint8 hash_code  = 0;                          \
-        profile_curr = !hp_ignore_entry(hash_code, symbol);                 \
-        if (profile_curr) {                                                 \
+        func_hash_index = get_func_hash_index(symbol);                 \
+        if (func_hash_index) {                                                 \
             hp_entry_t *cur_entry = hp_fast_alloc_hprof_entry();              \
-            (cur_entry)->hash_code = hash_code;                               \
+            (cur_entry)->func_hash_index = func_hash_index;                               \
             (cur_entry)->name_hprof = symbol;                                 \
             (cur_entry)->prev_hprof = (*(entries));                           \
-            /* Call the universal callback */                                 \
-            hp_mode_common_beginfn((entries), (cur_entry) TSRMLS_CC);         \
             /* Call the mode's beginfn callback */                            \
             hp_globals.mode_cb.begin_fn_cb((entries), (cur_entry) TSRMLS_CC); \
             /* Update entries linked list */                                  \
@@ -835,22 +872,20 @@ void hp_clean_profiler_state(TSRMLS_D) {
  *        CALLING FUNCTION OR BY CALLING TSRMLS_FETCH()
  *        TSRMLS_FETCH() IS RELATIVELY EXPENSIVE.
  */
-#define END_PROFILING(entries, profile_curr)                            \
+#define END_PROFILING(entries, func_hash_index)                            \
     do {                                                                  \
-        if (profile_curr) {                                                 \
             hp_entry_t *cur_entry;                                            \
             /* Call the mode's endfn callback. */                             \
             /* NOTE(cjiang): we want to call this 'end_fn_cb' before */       \
-            /* 'hp_mode_common_endfn' to avoid including the time in */       \
-            /* 'hp_mode_common_endfn' in the profiling results.      */       \
-            hp_globals.mode_cb.end_fn_cb((entries) TSRMLS_CC);                \
+            if (func_hash_index) {                                                 \
+                hp_globals.mode_cb.end_fn_cb((entries) TSRMLS_CC);                \
+            }                                                                   \
             cur_entry = (*(entries));                                         \
             /* Call the universal callback */                                 \
-            hp_mode_common_endfn((entries), (cur_entry) TSRMLS_CC);           \
+            /*hp_mode_common_endfn((entries), (cur_entry) TSRMLS_CC);*/           \
             /* Free top entry and update entries linked list */               \
             (*(entries)) = (*(entries))->prev_hprof;                          \
             hp_fast_free_hprof_entry(cur_entry);                              \
-        }                                                                   \
     } while (0)
 
 
@@ -937,21 +972,36 @@ int  hp_need_track_function(uint8 hash_code, zend_string *curr_func) {
 }
 
 //是否不捕获当前函数
-static inline int  hp_ignore_entry(uint8 hash_code, zend_string *curr_func) {
+//获取要捕获的函数 在hash table 的index 值
+static inline zend_long  get_func_hash_index(zend_string *curr_func) {
     if (hp_globals.track_function_names != NULL) {
 
+        zval *index_value;
+        index_value = zend_hash_find(hp_globals.track_function_names, curr_func);
+
+        if (!index_value) {
+            return NULL;
+        }
+
+        return Z_LVAL_P(index_value);
+
         //指定的函数才捕获
+        /*
         if (hp_need_track_function(hash_code, curr_func)) {
             return 0;
-            //return 1;
         } else {
             return 1;
         }
+        */
     }
 
+    return NULL;
+
     /* check if ignoring functions is enabled */
+    /*
     return hp_globals.ignored_function_names != NULL &&
         hp_ignore_entry_work(hash_code, curr_func);
+        */
 }
 
 /**
@@ -1137,18 +1187,14 @@ static void hp_fast_free_hprof_entry(hp_entry_t *p) {
  * Increment the count of the given stat with the given count
  * If the stat was not set before, inits the stat to the given count
  *
- * @param  zval *counts   Zend hash table pointer
- * @param  char *name     Name of the stat
- * @param  long  count    Value of the stat to incr by
- * @return void
- * @author kannan
  */
-void hp_inc_count(HashTable *counts, char *name, size_t len, long count TSRMLS_DC) {
+void hp_inc_count(HashTable *counts, zend_long index, long count TSRMLS_DC) {
+
     zval *data;
 
     if (!counts) return;
 
-    data = zend_hash_str_find(counts, name, len); 
+    data = zend_hash_index_find(counts, index); 
     if (data != NULL) {
         ZVAL_LONG(data, Z_LVAL_P(data) + count);
 
@@ -1156,7 +1202,7 @@ void hp_inc_count(HashTable *counts, char *name, size_t len, long count TSRMLS_D
         zval *temp = (zval *)emalloc(sizeof(zval));
         ZVAL_LONG(temp, count);
 
-        zend_symtable_str_update(counts, name, len, temp);
+        zend_hash_index_add(counts, index, temp);
     }
 }
 
@@ -1166,31 +1212,34 @@ void hp_inc_count(HashTable *counts, char *name, size_t len, long count TSRMLS_D
  *
  * @author kannan, veeve
  */
-HashTable * hp_hash_lookup(zend_string *symbol  TSRMLS_DC) {
-    //HashTable *counts;
+HashTable * hp_stats_count_lookup(zend_long func_hash_index  TSRMLS_DC) {
     zval *counts;
 
     if (!hp_globals.stats_count ) {
-        //return (zval *) 0;
         return NULL;
     }
 
     /* Lookup our hash table */
-    //if (zend_hash_find(ht, symbol, strlen(symbol) + 1, &data) == SUCCESS) {
-    counts = zend_hash_find(hp_globals.stats_count, symbol); 
+    //counts = zend_hash_find(hp_globals.stats_count, symbol); 
+    counts = zend_hash_index_find(hp_globals.stats_count, func_hash_index); 
+    //counts = zend_hash_index_find_cc(hp_globals.stats_count, func_hash_index); 
     if (counts == NULL) {
         /* Add symbol to hash table */
-        //counts = (HashTable *)emalloc(sizeof(HashTable));
         counts = (zval *)emalloc(sizeof(zval));
         Z_TYPE_INFO_P(counts) = IS_ARRAY_EX;
 
         HashTable *temp = (HashTable *)emalloc(sizeof(HashTable));
-        zend_hash_init(temp, 5, NULL, NULL, 0);
+        zend_hash_init(temp, 10, NULL, NULL, 0);
+        //zend_hash_real_init(temp, 1);// 转为packed array
 
         Z_ARR_P(counts) = temp;
 
-        //ZVAL_NEW_ARR(counts);
-        zend_hash_add(hp_globals.stats_count, symbol, counts);
+        php_printf("1111111111, %d, %d\n", HT_IS_PACKED(hp_globals.stats_count), HT_IS_PACKED(temp));
+
+        zend_hash_index_add(hp_globals.stats_count, func_hash_index, counts);
+
+        php_printf("22222222, %d, %d\n", HT_IS_PACKED(hp_globals.stats_count), HT_IS_PACKED(temp));
+
     }
 
     return Z_ARR_P(counts);
@@ -1428,38 +1477,6 @@ void hp_mode_dummy_endfn_cb(hp_entry_t **entries   TSRMLS_DC) { }
  * XHPROF COMMON CALLBACKS
  * ****************************
  */
-/**
- * XHPROF universal begin function.
- * This function is called for all modes before the
- * mode's specific begin_function callback is called.
- *
- * @param  hp_entry_t **entries  linked list (stack)
- *                                  of hprof entries
- * @param  hp_entry_t  *current  hprof entry for the current fn
- * @return void
- * @author kannan, veeve
- */
-void hp_mode_common_beginfn(hp_entry_t **entries, hp_entry_t  *current  TSRMLS_DC) {
-    hp_entry_t   *p;
-
-    /* This symbol's recursive level */
-    int    recurse_level = 0;
-
-    if (hp_globals.func_hash_counters[current->hash_code] > 0) {
-        /* Find this symbols recurse level */
-        for(p = (*entries); p; p = p->prev_hprof) {
-            //if (!strcmp(current->name_hprof, p->name_hprof)) {
-            if (zend_string_equals(current->name_hprof, p->name_hprof)) {
-                recurse_level = (p->rlvl_hprof) + 1;
-                break;
-            }
-        }
-    }
-    hp_globals.func_hash_counters[current->hash_code]++;
-
-    /* Init current function's recurse level */
-    current->rlvl_hprof = recurse_level;
-}
 
 /**
  * XHPROF universal end function.  This function is called for all modes after
@@ -1470,7 +1487,6 @@ void hp_mode_common_beginfn(hp_entry_t **entries, hp_entry_t  *current  TSRMLS_D
  * @author kannan, veeve
  */
 void hp_mode_common_endfn(hp_entry_t **entries, hp_entry_t *current TSRMLS_DC) {
-    hp_globals.func_hash_counters[current->hash_code]--;
 }
 
 
@@ -1491,8 +1507,7 @@ void hp_mode_common_endfn(hp_entry_t **entries, hp_entry_t *current TSRMLS_DC) {
  *
  * @author kannan
  */
-void hp_mode_hier_beginfn_cb(hp_entry_t **entries,
-        hp_entry_t  *current  TSRMLS_DC) {
+void hp_mode_hier_beginfn_cb(hp_entry_t **entries, hp_entry_t  *current  TSRMLS_DC) {
 
     /* Get start tsc counter */
     current->tsc_start = cycle_timer();
@@ -1527,16 +1542,15 @@ HashTable * hp_mode_shared_endfn_cb(hp_entry_t *top, zend_string *symbol  TSRMLS
     /* Get end tsc counter */
     tsc_end = cycle_timer();
 
-    /* Get the stat array */
-    if (!(counts = hp_hash_lookup(symbol TSRMLS_CC))) {
+    /* find or create the stat array */
+    if (!(counts = hp_stats_count_lookup(top->func_hash_index TSRMLS_CC))) {
         return NULL;
     }
 
-
     /* Bump stats in the counts hashtable */
-    hp_inc_count(counts, "ct", 2, 1  TSRMLS_CC);
+    hp_inc_count(counts, HP_STATS_COUNT_CT, 1  TSRMLS_CC);
 
-    hp_inc_count(counts, "wt", 2, get_us_from_tsc(tsc_end - top->tsc_start,
+    hp_inc_count(counts, HP_STATS_COUNT_WT, get_us_from_tsc(tsc_end - top->tsc_start,
                 hp_globals.cpu_frequencies[hp_globals.cur_cpu_id]) TSRMLS_CC);
 
 
@@ -1552,34 +1566,20 @@ void hp_mode_hier_endfn_cb(hp_entry_t **entries  TSRMLS_DC) {
     hp_entry_t   *top = (*entries);
     HashTable    *counts;
     struct rusage    ru_end;
-    //char             symbol[SCRATCH_BUF_LEN];
-    zend_string      *symbol;
     long int         mu_end;
     long int         pmu_end;
 
-    //hp_get_function_stack(top, 2, &symbol);
-    //hp_get_function_stack(top, 1, &symbol);//cclehui_test
-    //
-    symbol = top->name_hprof;
-
-    Bucket *symbol_bucket = zend_hash_find_bucket_cc(hp_globals.tracked_function_names, symbol);
-    if (symbol_bucket) {
-        //zend_string_free(symbol);
-        //symbol = symbol_bucket->key;
-    } else {
-        zend_hash_add_empty_element(hp_globals.tracked_function_names, symbol);
-    }
-
-    if (!(counts = hp_mode_shared_endfn_cb(top, symbol  TSRMLS_CC))) {
+    if (!(counts = hp_mode_shared_endfn_cb(top, top->name_hprof  TSRMLS_CC))) {
         return;
     }
+
 
     if (hp_globals.xhprof_flags & XHPROF_FLAGS_CPU) {
         /* Get CPU usage */
         getrusage(RUSAGE_SELF, &ru_end);
 
         /* Bump CPU stats in the counts hashtable */
-        hp_inc_count(counts, "cpu", 3, (get_us_interval(&(top->ru_start_hprof.ru_utime),
+        hp_inc_count(counts, HP_STATS_COUNT_CPU, (get_us_interval(&(top->ru_start_hprof.ru_utime),
                         &(ru_end.ru_utime)) +
                     get_us_interval(&(top->ru_start_hprof.ru_stime),
                         &(ru_end.ru_stime)))
@@ -1592,8 +1592,8 @@ void hp_mode_hier_endfn_cb(hp_entry_t **entries  TSRMLS_DC) {
         pmu_end = zend_memory_peak_usage(0 TSRMLS_CC);
 
         /* Bump Memory stats in the counts hashtable */
-        hp_inc_count(counts, "mu", 2,  mu_end - top->mu_start_hprof    TSRMLS_CC);
-        hp_inc_count(counts, "pmu", 3, pmu_end - top->pmu_start_hprof  TSRMLS_CC);
+        hp_inc_count(counts, HP_STATS_COUNT_MU,  mu_end - top->mu_start_hprof    TSRMLS_CC);
+        hp_inc_count(counts, HP_STATS_COUNT_PMU, pmu_end - top->pmu_start_hprof  TSRMLS_CC);
     }
 }
 
@@ -1618,7 +1618,7 @@ ZEND_DLEXPORT void hp_execute_ex (zend_execute_data *execute_data TSRMLS_DC) {
 
     zend_op_array *ops = execute_data->opline;
     zend_string  *func;
-    int hp_profile_flag = 1;
+    zend_long func_hash_index = 0;
 
     func = hp_get_function_name(ops TSRMLS_CC);
 
@@ -1627,12 +1627,13 @@ ZEND_DLEXPORT void hp_execute_ex (zend_execute_data *execute_data TSRMLS_DC) {
         return;
     }
 
-    BEGIN_PROFILING(&hp_globals.entries, func, hp_profile_flag);
+    BEGIN_PROFILING(&hp_globals.entries, func, func_hash_index);
 
     _zend_execute_ex(execute_data TSRMLS_CC);
 
-    if (hp_globals.entries) {
-        END_PROFILING(&hp_globals.entries, hp_profile_flag);
+    //if (hp_globals.entries) {
+    if (func_hash_index) {
+        END_PROFILING(&hp_globals.entries, func_hash_index);
     }
 
     zend_string_release(func);
@@ -1658,13 +1659,13 @@ ZEND_DLEXPORT void hp_execute_internal(zend_execute_data *execute_data, zval *re
     zend_execute_data *current_data;
     zend_string *func;
 
-    int  hp_profile_flag = 1;
+    int  func_hash_index = 1;
 
     current_data = EG(current_execute_data);
     func = hp_get_function_name(current_data->opline TSRMLS_CC);
 
     if (func) {
-        BEGIN_PROFILING(&hp_globals.entries, func, hp_profile_flag);
+        BEGIN_PROFILING(&hp_globals.entries, func, func_hash_index);
     }
 
     //执行真正的函数调用
@@ -1676,8 +1677,9 @@ ZEND_DLEXPORT void hp_execute_internal(zend_execute_data *execute_data, zval *re
     }
 
     if (func) {
-        if (hp_globals.entries) {
-            END_PROFILING(&hp_globals.entries, hp_profile_flag);
+        //if (hp_globals.entries) {
+        if (func_hash_index) {
+            END_PROFILING(&hp_globals.entries, func_hash_index);
         }
         zend_string_release(func);
     }
@@ -1701,7 +1703,7 @@ static void hp_begin(long level, long xhprof_flags TSRMLS_DC) {
         return;
     }
 
-    int hp_profile_flag = 1;
+    zend_long func_hash_index = 0;
 
     hp_globals.enabled      = 1;
     hp_globals.xhprof_flags = (uint32)xhprof_flags;
@@ -1728,7 +1730,7 @@ static void hp_begin(long level, long xhprof_flags TSRMLS_DC) {
     /* start profiling from fictitious main() */
     zend_string *root_symbol = zend_string_init(ROOT_SYMBOL, strlen(ROOT_SYMBOL), 1);
 
-    BEGIN_PROFILING(&hp_globals.entries, root_symbol, hp_profile_flag);
+    BEGIN_PROFILING(&hp_globals.entries, root_symbol, func_hash_index);
 
 }
 
@@ -1755,11 +1757,10 @@ static void hp_end(TSRMLS_D) {
  * hp_stop() and restores the original values.
  */
 static void hp_stop(TSRMLS_D) {
-    int   hp_profile_flag = 1;
 
     /* End any unfinished calls */
     while (hp_globals.entries) {
-        END_PROFILING(&hp_globals.entries, hp_profile_flag);
+        END_PROFILING(&hp_globals.entries, NULL);
     }
 
     /* Remove proxies, restore the originals */
