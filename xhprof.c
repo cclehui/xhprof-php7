@@ -28,6 +28,7 @@
 #include "php_ini.h"
 #include "ext/standard/info.h"
 #include "php_xhprof.h"
+#include "trie.h"
 #include "zend_extensions.h"
 #include <sys/time.h>
 #include <sys/resource.h>
@@ -654,6 +655,9 @@ static void hp_get_options_from_arg(HashTable *args) {
             hp_globals.stats_count_func_num = zend_hash_num_elements(Z_ARR_P(z_track_functions)) + 1;
             emalloc_hp_stats_count(hp_globals.stats_count_func_num);
 
+            hp_trie_node *temp_root = create_root();
+            
+
             for (zend_hash_internal_pointer_reset(Z_ARR_P(z_track_functions));
                     zend_hash_has_more_elements(Z_ARR_P(z_track_functions)) == SUCCESS;
                     zend_hash_move_forward(Z_ARR_P(z_track_functions))) {
@@ -666,9 +670,14 @@ static void hp_get_options_from_arg(HashTable *args) {
 
                     zend_hash_add(hp_globals.track_function_names, Z_STR_P(data), temp_value);
 
+                    //字典树
+                    add_word(temp_root, ZSTR_VAL(Z_STR_P(data)));
+
                     tf_count++;
                 }
             }
+
+            traversal(temp_root, "test");
 
             temp_value = (zval *)emalloc(sizeof(zval));
             ZVAL_LONG(temp_value, tf_count);
