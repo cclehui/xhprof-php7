@@ -79,10 +79,6 @@
 /* XHProf version                           */
 #define XHPROF_VERSION       "0.9.2"
 
-/* Fictitious function name to represent top of the call tree. The paranthesis
- * in the name is to ensure we don't conflict with user function names.  */
-#define ROOT_SYMBOL                "main()"
-
 /* Size of a temp scratch buffer            */
 #define SCRATCH_BUF_LEN            512
 
@@ -174,8 +170,7 @@ typedef struct hp_mode_cb {
 /* Xhprof's global state.
  *
  * This structure is instantiated once.  Initialize defaults for attributes in
- * hp_init_profiler_state() Cleanup/free attributes in
- * hp_clean_profiler_state() */
+ */
 typedef struct hp_global_t {
 
     /*       ----------   Global attributes:  -----------       */
@@ -236,6 +231,7 @@ typedef struct hp_global_t {
     /* Table of function names need track , track all when null */
     HashTable  *track_function_names;
     uint8   track_function_filter[XHPROF_TRACK_FUNCTION_FILTER_SIZE];
+    hp_trie_node *track_function_trie;
 
 } hp_global_t;
 
@@ -633,8 +629,7 @@ static void hp_get_options_from_arg(HashTable *args) {
 
                 zval *data = zend_hash_get_current_data(Z_ARR_P(z_ignored_functions));
 
-                if (data && Z_TYPE_P(data) == IS_STRING
-                        && strcmp(ZSTR_VAL(Z_STR_P(data)), ROOT_SYMBOL)) {
+                if (data && Z_TYPE_P(data) == IS_STRING) {
                     zend_hash_add_empty_element(hp_globals.ignored_function_names, Z_STR_P(data));
                 }
             }
@@ -655,8 +650,8 @@ static void hp_get_options_from_arg(HashTable *args) {
             hp_globals.stats_count_func_num = zend_hash_num_elements(Z_ARR_P(z_track_functions)) + 1;
             emalloc_hp_stats_count(hp_globals.stats_count_func_num);
 
-            hp_trie_node *temp_root = create_root();
-            
+            //初始化字典树
+            hp_globals.track_function_trie = create_root();
 
             for (zend_hash_internal_pointer_reset(Z_ARR_P(z_track_functions));
                     zend_hash_has_more_elements(Z_ARR_P(z_track_functions)) == SUCCESS;
@@ -671,17 +666,14 @@ static void hp_get_options_from_arg(HashTable *args) {
                     zend_hash_add(hp_globals.track_function_names, Z_STR_P(data), temp_value);
 
                     //字典树
-                    add_word(temp_root, ZSTR_VAL(Z_STR_P(data)));
+                    add_word(hp_globals.track_function_trie, ZSTR_VAL(Z_STR_P(data)), tf_count);
 
                     tf_count++;
                 }
             }
 
-            traversal(temp_root, "test");
-
-            temp_value = (zval *)emalloc(sizeof(zval));
-            ZVAL_LONG(temp_value, tf_count);
-            zend_hash_str_add(hp_globals.track_function_names, ROOT_SYMBOL, strlen(ROOT_SYMBOL), temp_value);
+            //cclehui_test
+            //traversal(temp_root, "test");
 
             display_hash_table(hp_globals.track_function_names);
         }
@@ -968,6 +960,8 @@ int  hp_need_track_function(uint8 hash_code, zend_string *curr_func) {
 //获取要捕获的函数 在hash table 的index 值
 static inline zend_long  get_func_hash_index(zend_string *curr_func) {
     if (hp_globals.track_function_names != NULL) {
+
+        //return hp_trie_check(hp_globals.track_function_trie, ZSTR_VAL(curr_func), ZSTR_LEN(curr_func));
 
         zval *index_value;
         index_value = zend_hash_find(hp_globals.track_function_names, curr_func);
@@ -1617,12 +1611,6 @@ static void hp_begin(long level, long xhprof_flags TSRMLS_DC) {
 
     /* one time initializations */
     hp_init_profiler_state(level TSRMLS_CC);
-    
-    /* start profiling from fictitious main() */
-    zend_string *root_symbol = zend_string_init(ROOT_SYMBOL, strlen(ROOT_SYMBOL), 1);
-
-    BEGIN_PROFILING(&hp_globals.entries, root_symbol, func_hash_index);
-
 }
 
 /**

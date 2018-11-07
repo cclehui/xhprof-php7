@@ -17,13 +17,17 @@ typedef struct node {
     struct node* children[SUB_NODE_COUNT];
     int flag;
     char character;
+    zend_long func_hash_index;
 } hp_trie_node;
 
 hp_trie_node* create_node(char c, int flag) {
     hp_trie_node* n = emalloc(sizeof(hp_trie_node));
     n->character = c;
     n->flag = flag;
-    for (int i = 0; i < SUB_NODE_COUNT; i++) {
+    n->func_hash_index = NULL;
+
+    int i;
+    for (i = 0; i < SUB_NODE_COUNT; i++) {
         n->children[i] = NULL;
     }
     return n;
@@ -49,7 +53,7 @@ int append_node(hp_trie_node* n, char c) {
     }
 }
 
-int add_word(hp_trie_node* root, char* str) {
+int add_word(hp_trie_node* root, char* str, zend_long func_hash_index) {
     char c = *str;
     hp_trie_node* ptr = root;
     int flag = TRUE;
@@ -65,6 +69,7 @@ int add_word(hp_trie_node* root, char* str) {
     if (!ptr->flag) {
         flag = FALSE;
         ptr->flag = TRUE;
+        ptr->func_hash_index = func_hash_index;
     }
     return !flag;
 }
@@ -89,24 +94,32 @@ void traversal(hp_trie_node* root, char* str) {
         free(str_for_print);
     }
 
-    for (int i = 0; i < SUB_NODE_COUNT; i++) {
+    int i;
+
+    for (i = 0; i < SUB_NODE_COUNT; i++) {
         traversal(root->children[i], new_str);
     }
     free(new_str);
 }
 
-int check(hp_trie_node* root, char* word) {
+int hp_trie_check(hp_trie_node* root, char* word, int len) {
     hp_trie_node* ptr = root;
-    int len = strlen(word);
-    for (int i = 0; i < len; i++) {
+    if (len == NULL) {
+        len = strlen(word);
+    }
+
+    int i;
+    for (i = 0; i < len; i++) {
         if (!ptr) {
             return FALSE;
         }
         //ptr = ptr->children[word[i] - START_ASCII];
+        //php_printf("1111111\n");
         ptr = ptr->children[word[i]];
     }
     if (ptr && ptr->flag) {
-        return TRUE;
+        return ptr->func_hash_index;
+        //return TRUE;
 
     } else {
         return FALSE;
