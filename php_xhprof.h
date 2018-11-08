@@ -31,27 +31,6 @@ extern zend_module_entry xhprof_module_entry;
 #include "TSRM.h"
 #endif
 
-int callback_args(zval *val, int num_args, va_list args, zend_hash_key *hash_key) {
-  zval tmp = *val;
-  ZVAL_COPY(&tmp, val);
-  convert_to_string(&tmp);
- 
-  
-  php_printf("The key is : [ ");
-  if (hash_key->key) {
-    PHPWRITE(ZSTR_VAL(hash_key->key), ZSTR_LEN(hash_key->key));
-  } else {
-    php_printf("%ld", hash_key->h);
-  }
-  php_printf(" ], the value is: [ ");
-  PHPWRITE(Z_STRVAL(tmp), Z_STRLEN(tmp));
-  php_printf(" ]");
- 
-  zval_dtor(&tmp);
- 
-  return ZEND_HASH_APPLY_KEEP;
-}
-
 //打印zval
 void display_zval(zval *value) {
     if (value == NULL) {
@@ -150,48 +129,6 @@ void display_hash_table(HashTable *ht) {
     zend_hash_apply_with_arguments(ht, php_hash_print_with_args, 0);
 }
 
-static zend_always_inline Bucket *zend_hash_find_bucket_cc(const HashTable *ht, zend_string *key) {
-    zend_ulong h;
-    uint32_t nIndex;
-    uint32_t idx;
-    Bucket *p, *arData;
-
-    h = zend_string_hash_val(key);
-    arData = ht->arData;
-    nIndex = h | ht->nTableMask;
-    idx = HT_HASH_EX(arData, nIndex);
-    while (EXPECTED(idx != HT_INVALID_IDX)) {
-        p = HT_HASH_TO_BUCKET_EX(arData, idx);
-        if (EXPECTED(p->key == key)) { /* check for the same interned string */
-            return p;
-        } else if (EXPECTED(p->h == h) &&
-                EXPECTED(p->key) &&
-                EXPECTED(ZSTR_LEN(p->key) == ZSTR_LEN(key)) &&
-                EXPECTED(memcmp(ZSTR_VAL(p->key), ZSTR_VAL(key), ZSTR_LEN(key)) == 0)) {
-            return p;
-        }
-        idx = Z_NEXT(p->val);
-    }
-    return NULL;
-}
-
-ZEND_API zval* ZEND_FASTCALL zend_hash_index_find_cc(const HashTable *ht, zend_ulong h) {
-    Bucket *p;
-
-    if (ht->u.flags & HASH_FLAG_PACKED) {
-        if (h < ht->nNumUsed) {
-            p = ht->arData + h;
-            if (Z_TYPE(p->val) != IS_UNDEF) {
-                //php_printf("222222\n");
-                return &p->val;
-            }
-        }
-        return NULL;
-    }
-
-    p = zend_hash_index_find_bucket(ht, h);
-    return p ? &p->val : NULL;
-}
 
 
 PHP_MINIT_FUNCTION(xhprof);
@@ -203,7 +140,5 @@ PHP_MINFO_FUNCTION(xhprof);
 PHP_FUNCTION(xhprof_test);
 PHP_FUNCTION(xhprof_enable);
 PHP_FUNCTION(xhprof_disable);
-PHP_FUNCTION(xhprof_sample_enable);
-PHP_FUNCTION(xhprof_sample_disable);
 
 #endif /* PHP_XHPROF_H */

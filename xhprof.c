@@ -85,7 +85,6 @@
 /* Various XHPROF modes. If you are adding a new mode, register the appropriate
  * callbacks in hp_begin() */
 #define XHPROF_MODE_HIERARCHICAL            1
-#define XHPROF_MODE_SAMPLED            620002      /* Rockfort's zip code */
 
 /* Hierarchical profiling flags.
  *
@@ -96,19 +95,6 @@
 #define XHPROF_FLAGS_NO_BUILTINS   0x0001         /* do not profile builtins */
 #define XHPROF_FLAGS_CPU           0x0002      /* gather CPU times for funcs */
 #define XHPROF_FLAGS_MEMORY        0x0004   /* gather memory usage for funcs */
-
-/* Constants for XHPROF_MODE_SAMPLED        */
-#define XHPROF_SAMPLING_INTERVAL       100000      /* In microsecs        */
-
-/* Constant for ignoring functions, transparent to hierarchical profile */
-#define XHPROF_MAX_IGNORED_FUNCTIONS  256
-#define XHPROF_IGNORED_FUNCTION_FILTER_SIZE                           \
-    ((XHPROF_MAX_IGNORED_FUNCTIONS + 7)/8)
-
-/* Constant for track functions */
-#define XHPROF_MAX_TRACK_FUNCTIONS  256
-#define XHPROF_TRACK_FUNCTION_FILTER_SIZE                           \
-    ((XHPROF_MAX_TRACK_FUNCTIONS + 7)/8)
 
 #if !defined(uint64)
 typedef unsigned long long uint64;
@@ -188,14 +174,11 @@ typedef struct hp_global_t {
     zend_string *cur_func_name;
 
     /* Table of function names need track , track all when null */
-    HashTable  *track_function_names;
-    hp_trie_node *track_function_trie;
+    HashTable  *track_function_names; //要抓取的函数 hashtable
+    hp_trie_node *track_function_trie; // 要抓取的函数， 字段树
 
-    //要统计的函数个数
+    //要抓取的函数个数
     uint32_t             stats_count_func_num;
-
-    /* Indicates the current xhprof mode or level */
-    int              profiler_level;
 
     /* Top of the profile stack */
     hp_entry_t      *entries;
@@ -263,7 +246,7 @@ static zend_op_array * (*_zend_compile_string) (zval *source_string, char *filen
  */
 static void hp_register_constants(INIT_FUNC_ARGS);
 
-static void hp_begin(long level, long xhprof_flags TSRMLS_DC);
+static void hp_begin(long xhprof_flags TSRMLS_DC);
 static void hp_stop(TSRMLS_D);
 static void hp_end(TSRMLS_D);
 
@@ -274,7 +257,6 @@ static void clear_frequencies();
 static void hp_free_the_free_list();
 static hp_entry_t *hp_fast_alloc_hprof_entry();
 static void hp_fast_free_hprof_entry(hp_entry_t *p);
-static inline uint8 hp_inline_hash(zend_string *input_str);
 static void get_all_cpu_frequencies();
 static long get_us_interval(struct timeval *start, struct timeval *end);
 static void incr_us_interval(struct timeval *start, uint64 incr);
@@ -388,7 +370,7 @@ PHP_FUNCTION(xhprof_enable) {
 
     hp_get_options_from_arg(optional_array);
 
-    hp_begin(XHPROF_MODE_HIERARCHICAL, xhprof_flags TSRMLS_CC);
+    hp_begin(xhprof_flags TSRMLS_CC);
 }
 
 /**
@@ -421,7 +403,6 @@ PHP_FUNCTION(xhprof_disable) {
  * @author cjiang
  */
 PHP_MINIT_FUNCTION(xhprof) {
-    int i;
 
     REGISTER_INI_ENTRIES();
 
@@ -549,33 +530,6 @@ static void hp_register_constants(INIT_FUNC_ARGS) {
 }
 
 /**
- * A hash function to calculate a 8-bit hash code for a function name.
- * This is based on a small modification to 'zend_inline_hash_func' by summing
- * up all bytes of the ulong returned by 'zend_inline_hash_func'.
- *
- * @param str, char *, string to be calculated hash code for.
- *
- * @author cjiang
- */
-static inline uint8 hp_inline_hash(zend_string *input_str) {
-    ulong h = 5381;
-    uint i = 0;
-    uint8 res = 0;
-
-    char *str = ZSTR_VAL(input_str);
-
-    while (*str) {
-        h += (h << 5);
-        h ^= (ulong) *str++;
-    }
-
-    for (i = 0; i < sizeof(ulong); i++) {
-        res += ((uint8 *)&h)[i];
-    }
-    return res;
-}
-
-/**
  * 启动配置解析， 
  * 忽略的函数 ignored_functions
  * track的函数 track_functions
@@ -655,13 +609,12 @@ static void hp_get_options_from_arg(HashTable *args) {
  *
  * @author kannan, veeve
  */
-void hp_init_profiler_state(int level TSRMLS_DC) {
+void hp_init_profiler_state() {
     /* Setup globals */
     if (!hp_globals.ever_enabled) {
         hp_globals.ever_enabled  = 1;
         hp_globals.entries = NULL;
     }
-    hp_globals.profiler_level  = (int) level;
 
     /* NOTE(cjiang): some fields such as cpu_frequencies take relatively longer
      * to initialize, (5 milisecond per logical cpu right now), therefore we
@@ -694,7 +647,6 @@ void hp_clean_profiler_state(TSRMLS_D) {
     }
 
     hp_globals.entries = NULL;
-    hp_globals.profiler_level = 1;
     hp_globals.ever_enabled = 0;
 
     if (hp_globals.track_function_names) {
@@ -744,8 +696,6 @@ void hp_clean_profiler_state(TSRMLS_D) {
                 hp_globals.mode_cb.end_fn_cb((entries) TSRMLS_CC);                \
             }                                                                   \
             cur_entry = (*(entries));                                         \
-            /* Call the universal callback */                                 \
-            /*hp_mode_common_endfn((entries), (cur_entry) TSRMLS_CC);*/           \
             /* Free top entry and update entries linked list */               \
             (*(entries)) = (*(entries))->prev_hprof;                          \
             hp_fast_free_hprof_entry(cur_entry);                              \
@@ -840,78 +790,6 @@ static inline zend_long  get_func_hash_index(zend_string *curr_func) {
     return NULL;
 }
 
-/**
- * Build a caller qualified name for a callee.
- *
- * For example, if A() is caller for B(), then it returns "A==>B".
- * Recursive invokations are denoted with @<n> where n is the recursion
- * depth.
- *
- * For example, "foo==>foo@1", and "foo@2==>foo@3" are examples of direct
- * recursion. And  "bar==>foo@1" is an example of an indirect recursive
- * call to foo (implying the foo() is on the call stack some levels
- * above).
- *
- * @author kannan, veeve
- */
-size_t hp_get_function_stack(hp_entry_t *entry, int level,  zend_string **result_buf) {
-
-    size_t len = 0;
-
-    /* End recursion if we dont need deeper levels or we dont have any deeper
-     * levels */
-    if (!entry->prev_hprof || (level <= 1)) {
-        *result_buf = hp_get_entry_name(entry);
-        return ZSTR_LEN(*result_buf);
-    }
-
-    /* Take care of all ancestors first */
-    len = hp_get_function_stack(entry->prev_hprof, level - 1, result_buf);
-
-    /* Append the delimiter */
-# define    HP_STACK_DELIM        "==>"
-# define    HP_STACK_DELIM_LEN    (sizeof(HP_STACK_DELIM) - 1)
-
-    /* Add delimiter only if entry had ancestors */
-    size_t max_len = ZSTR_LEN(*result_buf) + HP_STACK_DELIM_LEN + ZSTR_LEN(entry->name_hprof);
-
-    zend_string *temp;
-    temp = strpprintf(max_len, "%s==>%s", ZSTR_VAL(*result_buf), ZSTR_VAL(entry->name_hprof));
-    zend_string_free(*result_buf);
-
-    *result_buf = temp;
-
-# undef     HP_STACK_DELIM_LEN
-# undef     HP_STACK_DELIM
-
-    return ZSTR_LEN(*result_buf);
-}
-
-/**
- * Takes an input of the form /a/b/c/d/foo.php and returns
- * a pointer to one-level directory and basefile name
- * (d/foo.php) in the same string.
- */
-static const char *hp_get_base_filename(const char *filename) {
-    const char *ptr;
-    int   found = 0;
-
-    if (!filename)
-        return "";
-
-    /* reverse search for "/" and return a ptr to the next char */
-    for (ptr = filename + strlen(filename) - 1; ptr >= filename; ptr--) {
-        if (*ptr == '/') {
-            found++;
-        }
-        if (found == 2) {
-            return ptr + 1;
-        }
-    }
-
-    /* no "/" char found, so return the whole string */
-    return filename;
-}
 
 /**
  * Get the name of the current function. The name is qualified with
@@ -1223,30 +1101,6 @@ void hp_mode_dummy_endfn_cb(hp_entry_t **entries   TSRMLS_DC) { }
  */
 
 /**
- * XHPROF universal end function.  This function is called for all modes after
- * the mode's specific end_function callback is called.
- *
- * @param  hp_entry_t **entries  linked list (stack) of hprof entries
- * @return void
- * @author kannan, veeve
- */
-void hp_mode_common_endfn(hp_entry_t **entries, hp_entry_t *current TSRMLS_DC) {
-}
-
-
-/**
- * *********************************
- * XHPROF INIT MODULE CALLBACKS
- * *********************************
- */
-
-/**
- * ************************************
- * XHPROF BEGIN FUNCTION CALLBACKS
- * ************************************
- */
-
-/**
  * XHPROF_MODE_HIERARCHICAL's begin function callback
  *
  * @author kannan
@@ -1426,7 +1280,7 @@ ZEND_DLEXPORT void hp_execute_internal(zend_execute_data *execute_data, zval *re
  * It replaces all the functions like zend_execute, zend_execute_internal,
  * etc that needs to be instrumented with their corresponding proxies.
  */
-static void hp_begin(long level, long xhprof_flags TSRMLS_DC) {
+static void hp_begin(long xhprof_flags TSRMLS_DC) {
     if (hp_globals.enabled) {
         return;
     }
@@ -1440,20 +1294,14 @@ static void hp_begin(long level, long xhprof_flags TSRMLS_DC) {
      * us from checking if any of the callbacks are NULL everywhere. */
     hp_globals.mode_cb.init_cb     = hp_mode_dummy_init_cb;
     hp_globals.mode_cb.exit_cb     = hp_mode_dummy_exit_cb;
-    hp_globals.mode_cb.begin_fn_cb = hp_mode_dummy_beginfn_cb;
-    hp_globals.mode_cb.end_fn_cb   = hp_mode_dummy_endfn_cb;
+    //hp_globals.mode_cb.begin_fn_cb = hp_mode_dummy_beginfn_cb;
+    //hp_globals.mode_cb.end_fn_cb   = hp_mode_dummy_endfn_cb;
 
-    /* Register the appropriate callback functions Override just a subset of
-     * all the callbacks is OK. */
-    switch(level) {
-        case XHPROF_MODE_HIERARCHICAL:
-            hp_globals.mode_cb.begin_fn_cb = hp_mode_hier_beginfn_cb;
-            hp_globals.mode_cb.end_fn_cb   = hp_mode_hier_endfn_cb;
-            break;
-    }
+    hp_globals.mode_cb.begin_fn_cb = hp_mode_hier_beginfn_cb;
+    hp_globals.mode_cb.end_fn_cb   = hp_mode_hier_endfn_cb;
 
     /* one time initializations */
-    hp_init_profiler_state(level TSRMLS_CC);
+    hp_init_profiler_state();
 }
 
 /**
