@@ -181,15 +181,18 @@ typedef struct hp_global_t {
     /* Indicates if xhprof was ever enabled during this request */
     int              ever_enabled;
 
-    /* Holds all the xhprof statistics */
-    //HashTable       *stats_count;
+    /* 抓取的结果 */
     zend_long             **stats_count;
+
+    //当前函数名 带类名
+    zend_string *cur_func_name;
+
+    /* Table of function names need track , track all when null */
+    HashTable  *track_function_names;
+    hp_trie_node *track_function_trie;
 
     //要统计的函数个数
     uint32_t             stats_count_func_num;
-
-    //已捕获的函数名字 zend_string cache
-    HashTable       *tracked_function_names;;
 
     /* Indicates the current xhprof mode or level */
     int              profiler_level;
@@ -224,16 +227,6 @@ typedef struct hp_global_t {
     /* XHProf flags */
     uint32 xhprof_flags;
 
-    zend_string *cur_func_name;
-
-    /* Table of ignored function names and their filter */
-    HashTable  *ignored_function_names;
-    uint8   ignored_function_filter[XHPROF_IGNORED_FUNCTION_FILTER_SIZE];
-
-    /* Table of function names need track , track all when null */
-    HashTable  *track_function_names;
-    uint8   track_function_filter[XHPROF_TRACK_FUNCTION_FILTER_SIZE];
-    hp_trie_node *track_function_trie;
 
 } hp_global_t;
 
@@ -287,8 +280,6 @@ static long get_us_interval(struct timeval *start, struct timeval *end);
 static void incr_us_interval(struct timeval *start, uint64 incr);
 
 static void hp_get_options_from_arg(HashTable *args);
-static void hp_option_functions_filter_clear();
-static void hp_option_functions_filter_init();
 
 static inline zval  *hp_zval_at_key(char  *key, HashTable  *values);
 static inline void emalloc_hp_stats_count(uint32_t func_num);
@@ -458,12 +449,8 @@ PHP_MINIT_FUNCTION(xhprof) {
     hp_globals.stats_count = NULL;
     hp_globals.stats_count_func_num = 0;
 
-    hp_globals.tracked_function_names = NULL;
-
     /* no free hp_entry_t structures to start with */
     hp_globals.entry_free_list = NULL;
-
-    hp_option_functions_filter_clear();
 
     //function proxy
 
@@ -597,10 +584,6 @@ static inline uint8 hp_inline_hash(zend_string *input_str) {
  */
 static void hp_get_options_from_arg(HashTable *args) {
 
-    if (hp_globals.ignored_function_names) {
-        zend_hash_destroy(hp_globals.ignored_function_names);
-    }
-
     if (hp_globals.track_function_names) {
         zend_hash_destroy(hp_globals.track_function_names);
     }
@@ -614,35 +597,13 @@ static void hp_get_options_from_arg(HashTable *args) {
         zend_string_free(hp_globals.cur_func_name);
     }
 
-    hp_globals.ignored_function_names = NULL;
     hp_globals.track_function_names = NULL;
 
 
     hp_globals.cur_func_name = zend_string_alloc(1024 , 0);
 
     if (args != NULL) {
-        zval  *z_ignored_functions = NULL;
         zval  *z_track_functions = NULL;
-
-        //要忽略的函数
-        z_ignored_functions = hp_zval_at_key("ignored_functions", args);
-        if (z_ignored_functions && Z_TYPE_P(z_ignored_functions) == IS_ARRAY
-                && zend_hash_num_elements(Z_ARR_P(z_ignored_functions)) > 0) {
-
-            ALLOC_HASHTABLE(hp_globals.ignored_function_names);
-            zend_hash_init(hp_globals.ignored_function_names, 20, NULL, NULL, 0);
-
-            for (zend_hash_internal_pointer_reset(Z_ARR_P(z_ignored_functions));
-                    zend_hash_has_more_elements(Z_ARR_P(z_ignored_functions)) == SUCCESS;
-                    zend_hash_move_forward(Z_ARR_P(z_ignored_functions))) {
-
-                zval *data = zend_hash_get_current_data(Z_ARR_P(z_ignored_functions));
-
-                if (data && Z_TYPE_P(data) == IS_STRING) {
-                    zend_hash_add_empty_element(hp_globals.ignored_function_names, Z_STR_P(data));
-                }
-            }
-        }
 
         //要捕获的函数
         z_track_functions = hp_zval_at_key("track_functions", args);
@@ -690,80 +651,6 @@ static void hp_get_options_from_arg(HashTable *args) {
 }
 
 /**
- * Clear filter for functions which may be ignored during profiling.
- *
- * @author mpal
- */
-static void hp_option_functions_filter_clear() {
-    memset(hp_globals.ignored_function_filter, 0,
-            XHPROF_IGNORED_FUNCTION_FILTER_SIZE);
-
-    memset(hp_globals.track_function_filter, 0,
-            XHPROF_TRACK_FUNCTION_FILTER_SIZE);
-}
-
-/**
- * Initialize filter for ignored functions using bit vector.
- *
- * @author mpal
- */
-static void hp_option_functions_filter_init() {
-
-    //要忽略的函数布隆过滤器初始化
-    if (hp_globals.ignored_function_names != NULL) {
-        for (zend_hash_internal_pointer_reset(hp_globals.ignored_function_names);
-                zend_hash_has_more_elements(hp_globals.ignored_function_names) == SUCCESS;
-                zend_hash_move_forward(hp_globals.ignored_function_names)) {
-
-            zend_string *string_index;
-            zend_long long_index;
-
-            if (HASH_KEY_IS_STRING == 
-                    zend_hash_get_current_key(hp_globals.ignored_function_names, &string_index, &long_index)) {
-
-                uint8 hash = hp_inline_hash(string_index);
-                int   idx  = INDEX_2_BYTE(hash);
-                hp_globals.ignored_function_filter[idx] |= INDEX_2_BIT(hash);
-            }
-        }
-    }
-
-    //要捕获的函数布隆过滤器初始化
-    if (hp_globals.track_function_names != NULL) {
-        for (zend_hash_internal_pointer_reset(hp_globals.track_function_names);
-                zend_hash_has_more_elements(hp_globals.track_function_names) == SUCCESS;
-                zend_hash_move_forward(hp_globals.track_function_names)) {
-
-            zend_string *string_index;
-            zend_long long_index;
-
-            if (HASH_KEY_IS_STRING == 
-                    zend_hash_get_current_key(hp_globals.track_function_names, &string_index, &long_index)) {
-
-                uint8 hash = hp_inline_hash(string_index);
-                int   idx  = INDEX_2_BYTE(hash);
-                hp_globals.track_function_filter[idx] |= INDEX_2_BIT(hash);
-            }
-        }
-    }
-}
-
-/**
- * Check if function collides in filter of functions to be ignored.
- *
- * @author mpal
- */
-int hp_ignored_functions_filter_collision(uint8 hash) {
-    uint8 mask = INDEX_2_BIT(hash);
-    return hp_globals.ignored_function_filter[INDEX_2_BYTE(hash)] & mask;
-}
-
-int hp_track_functions_filter_collision(uint8 hash) {
-    uint8 mask = INDEX_2_BIT(hash);
-    return hp_globals.track_function_filter[INDEX_2_BYTE(hash)] & mask;
-}
-
-/**
  * Initialize profiler state
  *
  * @author kannan, veeve
@@ -775,12 +662,6 @@ void hp_init_profiler_state(int level TSRMLS_DC) {
         hp_globals.entries = NULL;
     }
     hp_globals.profiler_level  = (int) level;
-
-    if (hp_globals.tracked_function_names) {
-        zend_hash_destroy(hp_globals.tracked_function_names);
-    }
-    ALLOC_HASHTABLE(hp_globals.tracked_function_names);
-    zend_hash_init(hp_globals.tracked_function_names, 20, NULL, NULL, 0);
 
     /* NOTE(cjiang): some fields such as cpu_frequencies take relatively longer
      * to initialize, (5 milisecond per logical cpu right now), therefore we
@@ -796,8 +677,6 @@ void hp_init_profiler_state(int level TSRMLS_DC) {
     /* Call current mode's init cb */
     hp_globals.mode_cb.init_cb(TSRMLS_C);
 
-    /* 初始化要捕获和要忽略的函数的布隆过滤器 */
-    hp_option_functions_filter_init();
 }
 
 /**
@@ -814,19 +693,9 @@ void hp_clean_profiler_state(TSRMLS_D) {
         efree_hp_stats_count();
     }
 
-    if (hp_globals.tracked_function_names) {
-        zend_hash_clean(hp_globals.tracked_function_names);
-    }
-
     hp_globals.entries = NULL;
     hp_globals.profiler_level = 1;
     hp_globals.ever_enabled = 0;
-
-    /* Delete the array storing ignored function names */
-    if (hp_globals.ignored_function_names) {
-        zend_hash_clean(hp_globals.ignored_function_names);
-        hp_globals.ignored_function_names = NULL;
-    }
 
     if (hp_globals.track_function_names) {
         zend_hash_clean(hp_globals.track_function_names);
@@ -912,30 +781,6 @@ zend_string * hp_get_entry_name(hp_entry_t  *entry) {
     return temp_name;
 }
 
-/**
- * Check if this entry should be ignored, first with a conservative Bloomish
- * filter then with an exact check against the function names.
- *
- * @author mpal
- */
-int  hp_ignore_entry_work(uint8 hash_code, zend_string *curr_func) {
-    int ignore = 0;
-
-    if (zend_hash_exists(hp_globals.ignored_function_names, curr_func)) {
-        ignore++;
-    }
-    /*
-    if (hp_ignored_functions_filter_collision(hash_code)) {
-
-        if (zend_hash_exists(hp_globals.ignored_function_names, curr_func)) {
-            ignore++;
-        }
-    }
-    */
-
-    return ignore;
-}
-
 //是否是需要捕获的函数
 int  hp_need_track_function(uint8 hash_code, zend_string *curr_func) {
     int track = 0;
@@ -993,12 +838,6 @@ static inline zend_long  get_func_hash_index(zend_string *curr_func) {
     }
 
     return NULL;
-
-    /* check if ignoring functions is enabled */
-    /*
-    return hp_globals.ignored_function_names != NULL &&
-        hp_ignore_entry_work(hash_code, curr_func);
-        */
 }
 
 /**
