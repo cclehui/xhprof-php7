@@ -15,12 +15,13 @@
 
 typedef struct node {
     struct node* children[SUB_NODE_COUNT];
-    int flag;
+    int flag; // true 代表一个单词的结束  false 还有子节点
     char character;
     zend_long func_hash_index;
 } hp_trie_node;
 
-hp_trie_node* create_node(char c, int flag) {
+
+hp_trie_node* hp_create_node(char c, int flag) {
     hp_trie_node* n = emalloc(sizeof(hp_trie_node));
     n->character = c;
     n->flag = flag;
@@ -33,9 +34,18 @@ hp_trie_node* create_node(char c, int flag) {
     return n;
 }
 
-hp_trie_node* create_root() {
-    hp_trie_node *root = create_node('$', FALSE);
+hp_trie_node* hp_create_root() {
+    hp_trie_node *root = hp_create_node('$', FALSE);
     return root;
+}
+
+//创建和初始化trie树
+void hp_trie_init_root(hp_trie_node **root_ptr) {
+    if (*root_ptr) {
+        hp_efree_trie(*root_ptr);
+    }
+
+    (*root_ptr) = hp_create_root();
 }
 
 int append_node(hp_trie_node* n, char c) {
@@ -47,13 +57,13 @@ int append_node(hp_trie_node* n, char c) {
         return FALSE;
 
     } else {
-        //n->children[c - START_ASCII] = create_node(c, FALSE);
-        n->children[c] = create_node(c, FALSE);
+        //n->children[c - START_ASCII] = hp_create_node(c, FALSE);
+        n->children[c] = hp_create_node(c, FALSE);
         return TRUE;
     }
 }
 
-int add_word(hp_trie_node* root, char* str, zend_long func_hash_index) {
+int hp_trie_add_word(hp_trie_node* root, char* str, zend_long func_hash_index) {
     char c = *str;
     hp_trie_node* ptr = root;
     int flag = TRUE;
@@ -72,6 +82,23 @@ int add_word(hp_trie_node* root, char* str, zend_long func_hash_index) {
         ptr->func_hash_index = func_hash_index;
     }
     return !flag;
+}
+
+//释放trie数内存
+void hp_efree_trie(hp_trie_node* root) {
+    if (!root) {
+        return;
+    }
+
+    if (root->flag) {
+        efree(root);
+        return;
+    }
+
+    int i;
+    for (i = 0; i < SUB_NODE_COUNT; i++) {
+        hp_efree_trie(root->children[i]);
+    }
 }
 
 void traversal(hp_trie_node* root, char* str) {
@@ -100,6 +127,42 @@ void traversal(hp_trie_node* root, char* str) {
         traversal(root->children[i], new_str);
     }
     free(new_str);
+}
+
+int hp_trie_check_func(hp_trie_node* root, zend_string *class_name, char split_char, zend_string *function_name ) {
+
+    hp_trie_node* ptr = root;
+    int i;
+
+    if (class_name != NULL) {
+        for (i = 0; i < ZSTR_LEN(class_name); i++) {
+            if (!ptr) {
+                return FALSE;
+            }
+            ptr = ptr->children[class_name->val[i]];
+        }
+
+        for (i = 0; i < 1; i++) {
+            if (!ptr) {
+                return FALSE;
+            }
+            ptr = ptr->children[split_char];
+        }
+    }
+
+    for (i = 0; i < ZSTR_LEN(function_name); i++) {
+        if (!ptr) {
+            return FALSE;
+        }
+        ptr = ptr->children[function_name->val[i]];
+    }
+
+    if (ptr && ptr->flag) {
+        return ptr->func_hash_index;
+
+    } else {
+        return FALSE;
+    }
 }
 
 int hp_trie_check(hp_trie_node* root, char* word, int len) {

@@ -19,13 +19,15 @@ function foo() {
 $options = [
     //'ignored_functions' => ['bar'],
     //'track_functions' => ['test', 'bar', 'foo'],
-    //'track_functions' => ['bar', 'foo', 'TempUtil:test'],
+    //'track_functions' => ['bar', 'foo', 'TempUtil:test', 'test'],
     //'track_functions' => ['bar', 'foo', 'test'],
-    //'track_functions' => ['test'],
-    'track_functions' => ['TempUtil:test'],
+    'track_functions' => ['test'],
+    //'track_functions' => ['TempUtil:test'],
 ];
 //$options = ['ignored_functions' => 'bar'];
-xhprof_enable(0, $options);
+//xhprof_enable(1, $options);
+//xhprof_enable(XHPROF_ALGORITHM_HASH, $options);
+xhprof_enable(XHPROF_ALGORITHM_TRIE, $options);
 
 //xhprof_test();
 
@@ -35,8 +37,8 @@ $start_ts = microtime(true);
 //for ($i = 1; $i <= 10000000; $i++) {
 //for ($i = 1; $i <= 20000000; $i++) {
 for ($i = 1; $i <= 2; $i++) {
-    TempUtil::test();
-    //test();
+    //TempUtil::test();
+    test();
     //bar(0);
     if ($i % 100 == 0) {
         //foo();

@@ -11,10 +11,10 @@ make install
 
 ```
 $options = [
-    //'ignored_functions' => ['bar'], //要忽略的函数
-    'track_functions' => ['test', 'bar'], //要捕获的函数
+    'track_functions' => ['test', 'bar', 'TempUtil:test'], //要捕获的函数
 ];
-xhprof_enable(0, $options);
+//xhprof_enable(XHPROF_ALGORITHM_HASH, $options); //hash 查找方式
+xhprof_enable(XHPROF_ALGORITHM_TRIE, $options); //字典树查找方式
 
 //你的业务代码
 
