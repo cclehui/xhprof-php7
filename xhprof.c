@@ -224,6 +224,8 @@ typedef struct hp_global_t {
     /* XHProf flags */
     uint32 xhprof_flags;
 
+    zend_string *cur_func_name;
+
     /* Table of ignored function names and their filter */
     HashTable  *ignored_function_names;
     uint8   ignored_function_filter[XHPROF_IGNORED_FUNCTION_FILTER_SIZE];
@@ -608,8 +610,15 @@ static void hp_get_options_from_arg(HashTable *args) {
         efree_hp_stats_count();//释放旧内存
     }
 
+    if (hp_globals.cur_func_name) {
+        zend_string_free(hp_globals.cur_func_name);
+    }
+
     hp_globals.ignored_function_names = NULL;
     hp_globals.track_function_names = NULL;
+
+
+    hp_globals.cur_func_name = zend_string_alloc(1024 , 0);
 
     if (args != NULL) {
         zval  *z_ignored_functions = NULL;
@@ -961,8 +970,9 @@ int  hp_need_track_function(uint8 hash_code, zend_string *curr_func) {
 static inline zend_long  get_func_hash_index(zend_string *curr_func) {
     if (hp_globals.track_function_names != NULL) {
 
+        //字典树查找
         //return hp_trie_check(hp_globals.track_function_trie, ZSTR_VAL(curr_func), ZSTR_LEN(curr_func));
-
+        
         zval *index_value;
         index_value = zend_hash_find(hp_globals.track_function_names, curr_func);
 
@@ -1088,7 +1098,7 @@ static zend_string *hp_get_function_name(zend_op_array *ops TSRMLS_DC) {
     }
 
     //cclehui_test
-    return curr_func->common.function_name;
+    //return curr_func->common.function_name;
 
 
     //没有类
@@ -1097,10 +1107,10 @@ static zend_string *hp_get_function_name(zend_op_array *ops TSRMLS_DC) {
         return curr_func->common.function_name;
     } 
 
-    zend_string *result;
+    zend_string *result = hp_globals.cur_func_name;
 
     //result = zend_string_dup(curr_func->common.scope->name, 0);
-    result = zend_string_alloc(ZSTR_LEN(curr_func->common.scope->name) + ZSTR_LEN(curr_func->common.function_name) + 1 , 0);
+    //result = zend_string_alloc(ZSTR_LEN(curr_func->common.scope->name) + ZSTR_LEN(curr_func->common.function_name) + 1 , 0);
 
     memcpy(result->val, ZSTR_VAL(curr_func->common.scope->name), ZSTR_LEN(curr_func->common.scope->name));
     *(result->val + ZSTR_LEN(curr_func->common.scope->name)) = ':';
@@ -1109,15 +1119,9 @@ static zend_string *hp_get_function_name(zend_op_array *ops TSRMLS_DC) {
 
     *(result->val + ZSTR_LEN(curr_func->common.scope->name) + 1 + ZSTR_LEN(curr_func->common.function_name))  = '\0';
 
-    //cclehui_test
-    //php_printf("11111111, %s, %d, %d\n", ZSTR_VAL(result), strlen(ZSTR_VAL(result)), sizeof(ZSTR_VAL(result)));
+    hp_globals.cur_func_name->len = ZSTR_LEN(curr_func->common.scope->name) + ZSTR_LEN(curr_func->common.function_name) + 1;
 
     return result;
-
-    /*
-    ret = estrdup(ZSTR_VAL(curr_func->common.function_name));
-    return ret;
-    */
 }
 
 /**
@@ -1521,7 +1525,7 @@ ZEND_DLEXPORT void hp_execute_ex (zend_execute_data *execute_data TSRMLS_DC) {
         END_PROFILING(&hp_globals.entries, func_hash_index);
     }
 
-    zend_string_release(func);
+    //zend_string_release(func);
 }
 
 #undef EX
@@ -1566,7 +1570,7 @@ ZEND_DLEXPORT void hp_execute_internal(zend_execute_data *execute_data, zval *re
         if (func_hash_index) {
             END_PROFILING(&hp_globals.entries, func_hash_index);
         }
-        zend_string_release(func);
+        //zend_string_release(func);
     }
 
 }

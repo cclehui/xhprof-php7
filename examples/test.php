@@ -21,7 +21,8 @@ $options = [
     //'track_functions' => ['test', 'bar', 'foo'],
     //'track_functions' => ['bar', 'foo', 'TempUtil:test'],
     //'track_functions' => ['bar', 'foo', 'test'],
-    'track_functions' => ['test'],
+    //'track_functions' => ['test'],
+    'track_functions' => ['XTempUtil:test'],
 ];
 //$options = ['ignored_functions' => 'bar'];
 xhprof_enable(0, $options);
@@ -33,10 +34,10 @@ $start_ts = microtime(true);
 //for ($i = 1; $i <= 20; $i++) {
 //for ($i = 1; $i <= 10000000; $i++) {
 for ($i = 1; $i <= 20000000; $i++) {
-//for ($i = 1; $i <= 2; $i++) {
-    //TempUtil::test();
-    test();
-    bar(0);
+//for ($i = 1; $i <= 1; $i++) {
+    TempUtil::test();
+    //test();
+    //bar(0);
     if ($i % 100 == 0) {
         //foo();
         //bar(0);

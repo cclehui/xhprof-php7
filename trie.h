@@ -114,7 +114,6 @@ int hp_trie_check(hp_trie_node* root, char* word, int len) {
             return FALSE;
         }
         //ptr = ptr->children[word[i] - START_ASCII];
-        //php_printf("1111111\n");
         ptr = ptr->children[word[i]];
     }
     if (ptr && ptr->flag) {
