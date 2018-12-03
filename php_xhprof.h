@@ -129,6 +129,16 @@ void display_hash_table(HashTable *ht) {
     zend_hash_apply_with_arguments(ht, php_hash_print_with_args, 0);
 }
 
+void display_hash_table_new(HashTable *ht) {
+    zval temp;
+
+
+    Z_TYPE_INFO(temp) = IS_ARRAY;
+    Z_ARR(temp) = ht;
+    zend_print_zval_r(&temp, 1);
+
+}
+
 
 
 PHP_MINIT_FUNCTION(xhprof);

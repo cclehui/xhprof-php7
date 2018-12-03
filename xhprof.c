@@ -621,7 +621,8 @@ static void init_options_from_arg(uint32_t track_algorithm, HashTable *args, zen
 
     //cclehui_test
     //traversal(hp_globals.track_function_trie, "test");
-    display_hash_table(hp_globals.track_function_names);
+    //display_hash_table(hp_globals.track_function_names);
+    display_hash_table_new(hp_globals.track_function_names);
 }
 
 /**
